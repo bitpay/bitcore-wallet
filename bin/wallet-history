@@ -10,7 +10,7 @@ program = utils.configureCommander(program);
 
 
 program
-  .option('-o, --output <file>', 'get JSON output in file');
+  .option('-o, --output <file>', 'get JSON output in file')
   .option('-i, --info', 'include extended info');
 
 program
@@ -41,7 +41,7 @@ utils.getClient(program, {
 
         if (program.output) {
           allTxs.push(txs);
-          fs.writeFile(program.output,JSON.stringify(txs), {
+          fs.writeFile(program.output,JSON.stringify(allTxs), {
             encoding: 'utf8'
           }, function(err) {
             if (err) console.error(err);
