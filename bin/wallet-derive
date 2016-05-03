@@ -2,7 +2,7 @@
 
 var program = require('commander');
 var utils = require('./cli-utils');
-var Bitcore = require('bitcore-wallet-client').getBitcore();
+var Bitcore = require('bitcore-wallet-client').Bitcore;
 
 program = utils.configureCommander(program);
 
