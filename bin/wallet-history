@@ -11,6 +11,7 @@ program = utils.configureCommander(program);
 
 program
   .option('-o, --output <file>', 'get JSON output in file');
+  .option('-i, --info', 'include extended info');
 
 program
   .parse(process.argv);
@@ -31,7 +32,7 @@ utils.getClient(program, {
       client.getTxHistory({
         skip: skip,
         limit: limit + 1,
-        includeExtendedInfo: 1,
+        includeExtendedInfo: program.info,
       }, function(err, txs) {
         got = txs.length;
 
