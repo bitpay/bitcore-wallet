@@ -243,7 +243,7 @@ Utils.renderAmount = function(amount) {
   var unit = process.env.BIT_UNIT || 'bit';
   if (unit === 'SAT') {
     // Do nothing
-  } else if (process.env.BIT_UNIT === 'btc') {
+  } else if (unit === 'btc') {
     amount = amount / 1e8;
   } else {
     amount = amount / 100;

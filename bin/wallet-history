@@ -11,6 +11,9 @@ program = utils.configureCommander(program);
 
 program
   .option('-o, --output <file>', 'get JSON output in file')
+  .option('-s, --skip <n>', 'skip the first n transactions (0 by default)')
+  .option('-p, --page <n>', 'download page size')
+  .option('-l, --limit <n>', 'limit download to n transactions')
   .option('-i, --info', 'include extended info');
 
 program
@@ -18,30 +21,39 @@ program
 
 var args = program.args;
 
-var skip = 0,
-  limit = 55, got;
+var skip = +program.skip || 0,
+  page = +program.page || 55,
+  limit = +program.limit,
+  got;
 
 console.warn("* TX History:")
-var allTxs=[];
+var allTxs = [];
 utils.getClient(program, {
   mustExist: true
 }, function(client) {
 
+  var l=0;
+
   async.doWhilst(
     function(cb) {
+      console.warn('* Getting: %d => %d Got:', skip, skip + page, l);
       client.getTxHistory({
         skip: skip,
-        limit: limit + 1,
-        includeExtendedInfo: program.info,
+        limit: page + 1,
       }, function(err, txs) {
+console.log('[wallet-history.44:txs:]',txs); //TODO
         got = txs.length;
+        l += got;
 
         if (_.isEmpty(txs))
           return;
 
+        if (got > page)
+          txs.pop();
+
         if (program.output) {
           allTxs.push(txs);
-          fs.writeFile(program.output,JSON.stringify(allTxs), {
+          fs.writeFile(program.output, JSON.stringify(allTxs), {
             encoding: 'utf8'
           }, function(err) {
             if (err) console.error(err);
@@ -72,14 +84,18 @@ utils.getClient(program, {
       });
     },
     function() {
-      var cont = got > limit;
+      var cont = got > page;
+
+      console.log('[wallet-history.26:limit:]', program.limit, l); //TODO
+      if (program.limit && l > program.limit)
+        cont = 0;
+
       if (cont) {
-        skip+= limit;
-        console.warn('* Skip:', skip);
+        skip += page;
       }
       return cont;
     },
-    function (err) {
+    function(err) {
       console.log(err);
     }
   );
