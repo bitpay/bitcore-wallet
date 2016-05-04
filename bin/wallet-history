@@ -41,7 +41,6 @@ utils.getClient(program, {
         skip: skip,
         limit: page + 1,
       }, function(err, txs) {
-console.log('[wallet-history.44:txs:]',txs); //TODO
         got = txs.length;
         l += got;
 
@@ -85,8 +84,6 @@ console.log('[wallet-history.44:txs:]',txs); //TODO
     },
     function() {
       var cont = got > page;
-
-      console.log('[wallet-history.26:limit:]', program.limit, l); //TODO
       if (program.limit && l > program.limit)
         cont = 0;
 
