@@ -50,6 +50,7 @@ utils.getClient(program, {
       passphrase: passphrase,
     }, function(err) {
       if (err)
+console.log(err);
         utils.die('Could not import');
 
       utils.saveClient(program, client, function() {
