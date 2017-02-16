@@ -1,0 +1,63 @@
+#!/usr/bin/env node
+
+var program = require('commander');
+var fs = require('fs');
+var utils = require('./cli-utils');
+var exporter = require('bitcoin-wallet-node');
+var EventEmitter = require('events').EventEmitter;
+
+program = utils.configureCommander(program);
+
+program
+  .option('-t, --testnet', 'testnet network')
+  .option('-f, --file', 'import from file')
+  .usage('[options] <new wallet file name> e.g. wallet-import-berkeley -f ~/.bitcoin/wallet.dat wallet.json')
+  .parse(process.argv);
+
+var args = program.args;
+
+if (!args[0] || !fs.existsSync(program.file))
+  program.help();
+
+
+function exportWallet(callback) {
+  var results = '';
+
+    var emitter = new EventEmitter();
+    exporter.stream({
+      filePath: program.file,
+      emitter: emitter
+    });
+
+    emitter.on('data', function(value) {
+      results += value + ',\n';
+    });
+
+    emitter.on('close', function() {
+      callback(results.slice(0, results.length-2));
+    });
+
+    exporter.start();
+
+}
+
+
+exportWallet(function(result) {
+  var outputFile;
+  fs.open(args[0], 'wx', function(err, fd) {
+    if (err) {
+      if (err.code === "EEXIST") {
+        console.error(args[0] + ' exists, not over-writing.');
+        return;
+      } else {
+        throw err;
+      }
+    }
+    fs.write(fd, result, function(err) {
+      if(err) {
+        throw err;
+      }
+      console.log('done');
+    });
+  });
+});
