@@ -22,23 +22,21 @@ if (!args[0] || !fs.existsSync(program.file))
 
 function exportWallet(callback) {
   var results = '';
+  var emitter = new EventEmitter();
+  exporter.stream({
+    filePath: program.file,
+    emitter: emitter
+  });
 
-    var emitter = new EventEmitter();
-    exporter.stream({
-      filePath: program.file,
-      emitter: emitter
-    });
+  emitter.on('data', function(value) {
+    results += value + ',\n';
+  });
 
-    emitter.on('data', function(value) {
-      results += value + ',\n';
-    });
+  emitter.on('close', function() {
+    callback(results);
+  });
 
-    emitter.on('close', function() {
-      callback(results.slice(0, results.length-2));
-    });
-
-    exporter.start();
-
+  exporter.start();
 }
 
 
@@ -53,11 +51,14 @@ exportWallet(function(result) {
         throw err;
       }
     }
+
+    result += JSON.stringify({network: (program.testnet ? 'testnet' : 'livenet')});
     fs.write(fd, result, function(err) {
       if(err) {
         throw err;
       }
-      console.log('done');
+      console.log('import complete');
     });
+
   });
 });

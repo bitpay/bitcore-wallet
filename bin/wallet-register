@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+
+var program = require('commander');
+var FormData = require('form-data');
+var form = new FormData();
+var utils = require('./cli-utils');
+var http = require('http');
+var https = require('https');
+var fs = require('fs');
+var url = require('url');
+program = utils.configureCommander(program);
+
+program
+  .option('-n, --name', 'Name for this wallet on the server')
+  .option('-u, --url', 'Server url to register with')
+  .option('-f, --file', 'Wallet file to refer to when registering')
+  .usage('[options] e.g. wallet-register -f wallet.json -n company-wallet -s https://example.com/wallet-api')
+  .parse(process.argv);
+
+var args = program.args;
+
+var walletFile = program.file || process.env.HOME + '/.wallet.dat';
+var walletName = program.name || process.env.USER;
+console.log(program);
+var urlStr = program.url || 'https://localhost:3001/wallet-api';
+
+var stream = fs.createReadStream(walletFile);
+var parsedUrl = url.parse(urlStr);
+var httpOptions = {
+  protocol: parsedUrl.protocol,
+  hostname: parsedUrl.hostname,
+  method: 'POST',
+  url: url,
+  path: '/wallet',
+  //headers: '\r\n--' + form.getBoundary() + '\r\nContent-Disposition: form-data; name="addresses"; filename="nofile.json;\r\n\r\n',
+  body: ''
+};
+
+form.append('file', process.stdout, {
+  filename: walletFile,
+  contentType: 'application/json',
+  knownLength: fs.statSync(walletFile).size
+});
+
+var req = (parsedUrl.protocol === 'https:' ? https : http).request(options.httpOptions, function(res) { });
+form.pipe(req);
+
