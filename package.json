@@ -20,6 +20,7 @@
     "bitcoin-wallet-node": "kleetus/bitcoin-wallet-node#master",
     "bitcore-wallet-client": "4.4.2",
     "commander": "^2.6.0",
+    "form-data": "^2.1.2",
     "lodash": "^3.3.1",
     "moment": "^2.9.0",
     "npmlog": "^1.2.0",

@@ -8,40 +8,82 @@ var http = require('http');
 var https = require('https');
 var fs = require('fs');
 var url = require('url');
-program = utils.configureCommander(program);
 
+function isTLS(url) {
+  return url.protocol === 'https:';
+}
+
+program = utils.configureCommander(program);
 program
-  .option('-n, --name', 'Name for this wallet on the server')
-  .option('-u, --url', 'Server url to register with')
-  .option('-f, --file', 'Wallet file to refer to when registering')
+  .option('-u, --url <url>', 'Server url to register with')
+  .option('-f, --file <file>', 'Wallet file to refer to when registering')
   .usage('[options] e.g. wallet-register -f wallet.json -n company-wallet -s https://example.com/wallet-api')
   .parse(process.argv);
 
 var args = program.args;
-
 var walletFile = program.file || process.env.HOME + '/.wallet.dat';
-var walletName = program.name || process.env.USER;
-console.log(program);
 var urlStr = program.url || 'https://localhost:3001/wallet-api';
 
-var stream = fs.createReadStream(walletFile);
-var parsedUrl = url.parse(urlStr);
-var httpOptions = {
-  protocol: parsedUrl.protocol,
-  hostname: parsedUrl.hostname,
-  method: 'POST',
-  url: url,
-  path: '/wallet',
-  //headers: '\r\n--' + form.getBoundary() + '\r\nContent-Disposition: form-data; name="addresses"; filename="nofile.json;\r\n\r\n',
-  body: ''
-};
+function register(callback) {
+  var stream = fs.createReadStream(walletFile);
+  var parsedUrl = url.parse(urlStr);
+  var httpOptions = {
+    protocol: parsedUrl.protocol,
+    hostname: parsedUrl.hostname,
+    port: (parsedUrl.port || isTLS(parsedUrl) ? 443 : 80),
+    method: 'POST',
+    url: urlStr,
+    path: '/wallets',
+    body: ''
+  };
+  form.append('addresses', stream, walletFile);
+  var error;
+  var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
 
-form.append('file', process.stdout, {
-  filename: walletFile,
-  contentType: 'application/json',
-  knownLength: fs.statSync(walletFile).size
+    function finish(err, body) {
+      if (err) {
+        return callback(err);
+      }
+      if (res.statusCode < 200 || res.statusCode > 299) {
+        return callback(new Error('Response code from server was ' + res.statusCode));
+      }
+      var json;
+      if (body) {
+        try {
+          json = JSON.parse(body);
+        } catch(e) {
+          return callback(e);
+        }
+        if (body.walletId) {
+          callback(null, body.walletId);
+        } else {
+          callback(new Error('Response json not as expected - no walletId given in reply: ' + body));
+        }
+      }
+      callback(new Error('no body in response.'));
+    }
+
+    var body = '';
+    res.on('data', function(chunk) {
+      body += chunk;
+    });
+
+    res.on('end', function() {
+      finish(error, body);
+    });
+
+  });
+
+  req.on('error', function(e) {
+    error = e;
+  });
+
+  form.pipe(req);
+}
+
+register(function(err, walletId) {
+  if(err) {
+    throw err;
+  }
+  console.log('register complete. Wallet id: ' + walletId);
 });
-
-var req = (parsedUrl.protocol === 'https:' ? https : http).request(options.httpOptions, function(res) { });
-form.pipe(req);
-
