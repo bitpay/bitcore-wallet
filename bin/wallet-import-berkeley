@@ -10,7 +10,7 @@ program = utils.configureCommander(program);
 
 program
   .option('-t, --testnet', 'testnet network')
-  .option('-f, --file', 'import from file')
+  .option('-f, --file <file>', 'import from file')
   .usage('[options] <new wallet file name> e.g. wallet-import-berkeley -f ~/.bitcoin/wallet.dat wallet.json')
   .parse(process.argv);
 
