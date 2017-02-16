@@ -14,11 +14,25 @@ function isTLS(url) {
 program = utils.configureCommander(program);
 program
   .option('-u, --url <url>', 'Server url to register with')
-  .usage('[options] e.g. wallet-utxos -u https://example.com/wallet-api <walletId>')
+  .usage('[options] e.g. wallet-utxos -u https://example.com/wallet-api <walletId> <output file or stdout>')
   .parse(process.argv);
 
+function writeOutputFile(file, data, callback) {
+  fs.open(file, 'wx', function(err, fd) {
+    if (err) {
+      return callback(err);
+    }
+    fs.write(fd, data, function(err) {
+      if(err) {
+        return callback(err);
+      }
+      callback();
+    });
+  });
+}
+
 var args = program.args;
-if (!args[0]) {
+if (!args[0] || (args[1] && !fs.existsSync(args[1]))) {
   program.help();
 }
 
@@ -85,6 +99,17 @@ getUtxos(walletId, function(err, utxos) {
   if(err) {
     throw err;
   }
-  console.log('Utxos for walletId: ' + walletId + utxos);
+  if (args[1]) {
+    writeOutputFile(args[1], utxos, function(err) {
+      if(err) {
+        throw err;
+      }
+      console.log('Utxos written to ' + args[1] + ' for walletId: ' + walletId);
+    });
+  } else {
+    setImmediate(function() {
+      process.stdout.write(utxos);
+    });
+  }
 });
 
