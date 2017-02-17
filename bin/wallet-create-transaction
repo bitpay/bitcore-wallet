@@ -4,17 +4,41 @@ var program = require('commander');
 var utils = require('./cli-utils');
 var bitcore = require('bitcore-lib');
 var fs = require('fs');
-var async = require('async');
 var _ = require('lodash');
 
 program = utils.configureCommander(program);
 program
   .option('-s, --maxtxsize <maxtxsize>', 'Maximum Transaction Size in bytes, default 100 kB')
   .option('-a, --maxsatoshis <maxsatoshis>', 'Maximum Satoshis, default 50 BTC')
-  .usage('wallet-create-transactions <utxo file> <to addresses> <tx output file or stdout>, e.g. wallet-create-transaction utxos.json "n4DGvX1nG8iXkfemtsyBVbb7gsZXKZtuFU, 2MzVfCRT3J48nCAySjbGP8QsjbvirbJcAh2" tx.hex')
+  .usage('wallet-create-transactions <utxo file> <destination info file> <tx output file or stdout>, e.g. wallet-create-transaction utxos.json dest.json tx.hex')
   .parse(process.argv);
 
-function writeOutputFile(file, data, callback) {
+var BitcoreWalletTransaction = function(options) {
+  this.program = options.program;
+  this.args = this.program.args;
+  this.utxoFile = this.args[0];
+  this.addressesFile = this.args[1];
+  this.maxTxSize = options.maxtxsize || 1E5;
+  this.maxSatoshis = options.maxsatoshis || 50 * 1E8;
+};
+
+BitcoreWalletTransaction.prototype._processArgs = function() {
+  if (!this.args[0] || !this.args[1] || (this.args[2] && !fs.existsSync(this.args[2]))) {
+    this.program.help();
+  }
+};
+
+BitcoreWalletTransaction.prototype._setOutputAddressesAndAmounts = function() {
+  //letting this throw if needed
+  this._addresses = require(this.addressesFile);
+};
+
+BitcoreWalletTransaction.prototype._setUtxos = function(callback) {
+  //letting this throw if needed
+  this._sortUtxos(require(this.utxoFile));
+};
+
+BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
   fs.open(file, 'wx', function(err, fd) {
     if (err) {
       return callback(err);
@@ -26,75 +50,97 @@ function writeOutputFile(file, data, callback) {
       callback();
     });
   });
-}
+};
 
-var args = program.args;
-var maxTxSize = program.maxtxsize || 1E5;
-var maxSatoshis = program.maxsatoshis || 50 * 1E8;
-
-if (!args[0] || !args[1] || (args[2] && !fs.existsSync(args[2]))) {
-  program.help();
-}
-
-//TODO handle utxos that are P2SH and others
-function computeInputSize(utxo) {
-  //every input is > 40 bytes, 36 bytes for prev out and 4 bytes for nSequence + scriptSig + var_int for length of scriptSig
-  var scriptSigLen = utxo.scriptPubKey.length
-  var varIntLen; //varIntLen > 1, then varIntLen is serialized LE
-  if (scriptSigLen < 0xFD) {
-    varIntLen = 1;
-  } else if (scriptSigLen <= 0xFFFF) {
-    varIntLen = 3;
-  } else if (scriptSigLen <= 0xFFFFFFFF) {
-    varIntLen = 5;
-  } else {
-    varIntLen = 9;
-  }
-  var ret = 40 + scriptSigLen + varIntLen;
-  utxo.inputSize = ret;
- return ret;
-}
-
-function sort(utxos) {
-  // sort by input size then amount
-  return _.sortBy(utxos, [function(utxo) {
-    utxo.inputSize = computeInputSize(utxo);
-    return utxo.inputSize;
-  }, function(utxo) {
-    return utxo.satoshis;
+BitcoreWalletTransaction.prototype._sortUtxos = function(utxos) {
+  this.utxos = _.sortBy(utxos, [function(utxo) {
+    if (utxo) {
+      return utxo.satoshis;
+    }
   }]);
+};
+
+BitcoreWalletTransaction.prototype._addInputs = function() {
+  var utxos = [];
+  for(var i = 0; i < this.utxos.length; i++) {
+    if (!this._hasInputSpace(this.utxos[i])) {
+      break;
+    }
+    utxos.push(this.utxos[i]);
+  }
+  this.tx.from(utxos);
+};
+
+BitcoreWalletTransaction.prototype._addOutputs = function() {
+  for(var i = 0; i < this._addresses.length; i++) {
+    this.tx.to(this._addresses[i].address, this._addresses[i].amount);
+  }
+};
+
+BitcoreWalletTransaction.prototype._hasInputSpace = function(utxo) {
+  return (this.tx.uncheckedSerialize().length + this._calculateSigSpace(utxo)) <= this.maxTxSize;
+};
+
+BitcoreWalletTransaction.prototype._calculateSigSpace = function(utxo) {
+  return (this.tx.inputs.length + 1) * 72;
+};
+
+BitcoreWalletTransaction.prototype._estimateFee = function() {
+  return 0;
+};
+
+BitcoreWalletTransaction.prototype._checkAmounts = function() {
+  var fee = this.getFee();
+  if (fee < this._fee) {
+    throw 'Output amounts exceed input amounts.'
+  }
+  return fee;
+};
+
+BitcoreWalletTransaction.prototype._createTransaction = function() {
+  this.tx = new bitcore.Transaction();
+};
+
+BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
+  var self = this;
+  //get utcos
+  self._setUtxos();
+  //set output addresses and amounts
+  self._setOutputAddressesAndAmounts();
+  //create empty tx
+  self._createTransaction();
+  //add outputs
+  self._addOutputs();
+  //add inputs
+  self._addInputs();
+  //get fee
+  self._estimateFee();
+  //check amounts
+  self._checkAmounts(); //throws
+  //serialize tz
+  self._serialTransaction();
+  //write tx
+  self._writeOutputFile(function(err) {
+    if(err) {
+      return callback(err);
+    }
+    callback(null, self._generateStats());
+  });
+};
+
+if (require.main === module) {
+
+  var bitcoreWalletTransaction = new BitcoreWalletTransaction({
+    program: program
+  });
+
+  bitcoreWalletTransaction.createTransaction(function(err, stats) {
+    if(err) {
+      throw err;
+    }
+    console.log(stats);
+  });
+
 }
 
-var utxoFile = args[0];
-var utxos = sort(require(utxoFile));
-
-function createTransaction(utxoFile, callback) {
-  var utxosToSend = [];
-  var runningSize = 0;
-  var runningSatoshis = 0;
-  for(var i = 0; i < utxos.length; i++) {
-    if (utxos[i].satoshis + runningSatoshis > maxSatoshis ||
-      utxos[i]
-  }
-
-}
-
-createTransaction(utxoFile, function(err, utxos) {
-  if(err) {
-    throw err;
-  }
-  if (args[1]) {
-    writeOutputFile(args[1], utxos, function(err) {
-      if(err) {
-        throw err;
-      }
-      console.log('Utxos written to ' + args[1] + ' for walletId: ' + walletId);
-    });
-  } else {
-    setImmediate(function() {
-      process.stdout.write(utxos);
-    });
-  }
-});
-
-
+module.exports = BitcoreWalletTransaction;
