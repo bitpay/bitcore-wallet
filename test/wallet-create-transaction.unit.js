@@ -13,18 +13,38 @@ describe('BitcoreWalletTransaction', function() {
   var testDirPath = path.resolve(__dirname, './testdata');
 
   var tx;
-  beforeEach(function() {
-    tx = new BitcoreWalletTransaction({
-      program: {
-        args: [
-          testDirPath + '/input.json',
-          testDirPath + '/tmp/output.hex'
-        ],
-        maxTxSize: 1E4,
-        maxSatoshis: 30 * 1E8
+  beforeEach(function(done) {
+    initTestData(function(err) {
+      if(err) {
+        return done(err);
       }
-    })
+      tx = new BitcoreWalletTransaction({
+        program: {
+          args: [
+            testDirPath + '/input.json',
+            testDirPath + '/tmp/output.hex'
+          ],
+          maxTxSize: 1E4,
+          maxSatoshis: 30 * 1E8
+        }
+      });
+      done();
+    });
   });
+
+  function initTestData(callback) {
+    mkdirp(testDirPath + '/tmp', function(err) {
+      if(err) {
+        return callback(err);
+      }
+      rimraf(testDirPath + '/tmp/output.hex', function(err) {
+        if(err) {
+          return callback(err);
+        }
+        callback();
+      });
+    });
+  }
 
   it('should set utxos from file', function() {
     tx._setInputInformation();
@@ -128,27 +148,17 @@ describe('BitcoreWalletTransaction', function() {
   });
 
   it('should write unchecked serialized tx to a file', function(done) {
-    mkdirp(testDirPath + '/tmp', function(err) {
+    tx._createTransaction();
+    tx._writeOutputFile(function(err) {
       if(err) {
         return done(err);
       }
-      rimraf(tx.outputFile, function(err) {
+      fs.readFile(tx.outputFile, function(err, data) {
         if(err) {
           return done(err);
         }
-        tx._createTransaction();
-        tx._writeOutputFile(function(err) {
-          if(err) {
-            return done(err);
-          }
-          fs.readFile(tx.outputFile, function(err, data) {
-            if(err) {
-              return done(err);
-            }
-            data.toString('hex').should.equal('3031303030303030303030303030303030303030');
-            done();
-          });
-        });
+        data.toString('hex').should.equal('7b227478223a223031303030303030303030303030303030303030227d');
+        done();
       });
     });
   });
