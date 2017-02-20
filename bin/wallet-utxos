@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 var program = require('commander');
-var utils = require('./cli-utils');
 var http = require('http');
 var https = require('https');
 var fs = require('fs');
@@ -11,7 +10,6 @@ function isTLS(url) {
   return url.protocol === 'https:';
 }
 
-program = utils.configureCommander(program);
 program
   .option('-u, --url <url>', 'Server url to register with')
   .usage('[options] e.g. wallet-utxos -u https://example.com/wallet-api <walletId> <output file or stdout>')
@@ -32,8 +30,11 @@ function writeOutputFile(file, data, callback) {
 }
 
 var args = program.args;
-if (!args[0] || (args[1] && !fs.existsSync(args[1]))) {
+if (!args[0]) {
   program.help();
+} else if (args[1] && fs.existsSync(args[1])) {
+  console.error('Output file: "' + args[1] + '" already exists, not over-writing, aborting.');
+  process.exit(-1);
 }
 
 var walletId = args[0];

@@ -72,8 +72,9 @@ BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
 BitcoreWalletTransaction.prototype._addInputs = function() {
   var utxos = [];
   for(var i = 0; i < this.utxos.length; i++) {
-    if (!this._isP2PKH(this.utxos[i]) ||
-      !this._hasInputSpace(this.utxos[i]) ||
+    if (!this._isP2PKH(this.utxos[i])) {
+      continue;
+    } else if (!this._hasInputSpace(this.utxos[i]) ||
       !this._hasInputAmount(this.utxos[i])) {
       break;
     }
