@@ -5,6 +5,9 @@ var should = require('chai').should();
 var expect = require('chai').expect;
 var BitcoreWalletTransaction = require('../bin/wallet-create-transaction');
 var Transaction = require('bitcore-lib').Transaction;
+var rimraf = require('rimraf');
+var mkdirp = require('mkdirp');
+var fs = require('fs');
 
 describe('BitcoreWalletTransaction', function() {
   var testDirPath = path.resolve(__dirname, './testdata');
@@ -111,16 +114,52 @@ describe('BitcoreWalletTransaction', function() {
     tx._addOutputs();
     tx._addInputs();
     tx._setFee();
-    expect(tx._checkAmounts()).to.not.throw;
+    expect(tx._checkAmounts.bind(tx)).to.not.throw(Error);
   });
 
   it('should check amounts and error', function() {
     tx._setInputInformation();
     tx._createTransaction();
-    tx._addresses[0].satoshis = tx._addresses[0].satoshis - 1000;
+    tx._addresses[0].satoshis = tx._addresses[0].satoshis + 1000;
     tx._addOutputs();
     tx._addInputs();
     tx._setFee();
-    expect(tx._checkAmounts()).to.throw;
+    expect(tx._checkAmounts.bind(tx)).to.throw('Output amounts exceed input amounts.');
   });
+
+  it('should write unchecked serialized tx to a file', function(done) {
+    mkdirp(testDirPath + '/tmp', function(err) {
+      if(err) {
+        return done(err);
+      }
+      rimraf(tx.outputFile, function(err) {
+        if(err) {
+          return done(err);
+        }
+        tx._createTransaction();
+        tx._writeOutputFile(function(err) {
+          if(err) {
+            return done(err);
+          }
+          fs.readFile(tx.outputFile, function(err, data) {
+            if(err) {
+              return done(err);
+            }
+            data.toString('hex').should.equal('3031303030303030303030303030303030303030');
+            done();
+          });
+        });
+      });
+    });
+  });
+
+  it('should generate stats', function() {
+    tx._setInputInformation();
+    tx._createTransaction();
+    tx._addOutputs();
+    tx._addInputs();
+    tx._setFee();
+    tx._generateStats().should.equal('Total BTC sent: 14.00033320\nNumber of output addresses: 2\nTotal fees in satoshis: 33320\nTotal size in bytes: 238\nSatoshis per byte: 140\n');
+  });
+
 });

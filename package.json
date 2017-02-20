@@ -31,6 +31,8 @@
   },
   "devDependencies": {
     "chai": "^3.3.0",
+    "mkdirp": "^0.5.1",
+    "rimraf": "^2.6.0",
     "sinon": "^1.17.1"
   },
   "scripts": {

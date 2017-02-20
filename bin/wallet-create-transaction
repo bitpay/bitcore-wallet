@@ -22,6 +22,7 @@ var BitcoreWalletTransaction = function(options) {
   this.program = options.program;
   this.args = this.program.args;
   this.inputFile = this.args[0];
+  this.outputFile = this.args[1];
   this.maxTxSize = options.maxtxsize || 1E5;
   this.maxSatoshis = options.maxsatoshis || 50 * 1E8;
   this.inputAmount = 0;
@@ -30,7 +31,7 @@ var BitcoreWalletTransaction = function(options) {
 };
 
 BitcoreWalletTransaction.prototype._processArgs = function() {
-  if (!this.args[0] || (this.args[1] && !fs.existsSync(this.args[1]))) {
+  if (!this.args[0] || (this.args[1] && fs.existsSync(this.args[1]))) {
     this.program.help();
   }
 };
@@ -43,7 +44,8 @@ BitcoreWalletTransaction.prototype._setInputInformation = function() {
 };
 
 BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
-  fs.open(file, 'wx', function(err, fd) {
+  var data = this.tx.uncheckedSerialize();
+  fs.open(this.outputFile, 'wx', function(err, fd) {
     if (err) {
       return callback(err);
     }
@@ -109,6 +111,16 @@ BitcoreWalletTransaction.prototype._createTransaction = function() {
   this.tx = new bitcore.Transaction();
 };
 
+BitcoreWalletTransaction.prototype._generateStats = function() {
+  var stats = '';
+  stats += 'Total BTC sent: ' + (this.inputAmount / 1E8).toFixed(8) + '\n';
+  stats += 'Number of output addresses: ' + this._addresses.length + '\n';
+  stats += 'Total fees in satoshis: ' + this.tx.getFee() + '\n';
+  stats += 'Total size in bytes: ' + this.tx.uncheckedSerialize().length + '\n';
+  stats += 'Satoshis per byte: ' + Math.ceil(this.tx.getFee() / this.tx.uncheckedSerialize().length) + '\n';
+  return stats;
+};
+
 BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   var self = this;
   //set output addresses, amounts and utxos
@@ -123,8 +135,6 @@ BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   self._setFee();
   //check amounts
   self._checkAmounts(); //throws
-  //serialize tz
-  self._serializeTransaction();
   //write tx
   self._writeOutputFile(function(err) {
     if(err) {
