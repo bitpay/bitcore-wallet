@@ -1,0 +1,20 @@
+Transaction Building Business Logic:
+
+Inputs Needed:
+
+1. list of utxos
+2. list of output addresses (addresses to send to)
+  a. each address must have a flag denoting whether is it a change address
+  b. each address may optionally have a satoshi amount to send
+  c. if a change address has an amount, it will be ignored
+  d. if the sum of the input amounts plus the fee are LESS THAN the desired non-change output amounts, then the transaction will not be constructed with further user invention
+  e. if the sum of the input amounts plus the fee are GREATER THAN the destired non-change output amounts, then the transaction will be constructed and  the change address will be used for the difference
+  d. if the sum of the input amounts plus the fee are EQUAL TO the desired non-change output amounts, then the transaction will be constructed and the change address will NOT be used at all
+
+Options explained:
+
+Maximum Transaction Size <maxtxsize>: The maximum size for the transaction in the number of bytes. The Bitcoin protocol's theoretical maximum transaction size, pre-segregated witness ACTIVE state, is 1 MB (1,000,000 bytes) if the number of signature operations is also equal to or less than 20000. DEFAULT: 100 kB (100,000 bytes).
+
+Fee Per Byte: <feeperbyte>: The exact amount of satoshis per byte in the transaction. This setting includes the signatures that may be applied at a later time. This tool supports inputs of pay-to-public-key-hash only. Therefore, it can use a conservative value of 72 bytes for the size of a ECDSA type digitial signature and one signature per input.
+
+Maximum Satoshis: <maxsatoshis>: The maximum amount of bitcoin, in satoshis, to make available to the non-change output addresses. This value will override the output amounts used in the input file.

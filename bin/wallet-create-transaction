@@ -17,9 +17,7 @@ program
   .option('-a, --maxsatoshis <maxsatoshis>', 'Maximum Satoshis, default 50 BTC')
   .option('-f, --feeperbyte <feeperbyte>', 'Specify a fee per byte')
   .usage('<input file> <tx output file or stdout>, e.g. wallet-create-transaction input.json tx.hex\n\nInput file format ' +
-  inputFileFormat + '\n\nOutputs:\n\nIf the satoshis field is null, then the amount sent will be chosen based on the input ' +
-  'amounts.\n\nIf the output address is a change address, then the satoshis field will be ignored.\n\n' +
-  'If the fee plus the other output amounts are still less than the sum of the inputs, the balance will be applied to the change address.')
+  inputFileFormat + '\n\n\n' + fs.readFileSync(__dirname + '/../TransactionRules.txt'))
   .parse(process.argv);
 
 var BitcoreWalletTransaction = function(options) {
@@ -45,11 +43,47 @@ BitcoreWalletTransaction.prototype._processArgs = function() {
   }
 };
 
-BitcoreWalletTransaction.prototype._setInputInformation = function() {
+BitcoreWalletTransaction.prototype._setIOInformation = function() {
   //letting this throw if needed
   var inputInfo = require(this.inputFile);
   this._addresses = inputInfo.addresses;
   this.utxos = inputInfo.utxos;
+  this._performSanityChecks();
+  this._getUtxosAmount();
+  this._getDesiredOutputAmount();
+  this._setChangeAddressStatus();
+};
+
+BitcoreWalletTransaction.prototype._performSanityChecks = function() {
+  if (!this.utxos ||
+    this.utxos.length === 0 ||
+    !this._addresses ||
+    this._addresses.length === 0) {
+    throw 'Input file content does not contain utxos or output addresses.';
+  }
+};
+
+BitcoreWalletTransaction.prototype._setChangeAddressStatus = function() {
+  return nonChangeOutputSum > 0 ? this._changeAddressNeeded = true : this._changeAddressNeeded = false;
+};
+
+BitcoreWalletTransaction.prototype._getUtxosAmount = function() {
+  this.utxosSum = 0;
+  for(var i = 0; i < this.utxos.length; i++) {
+    this.utxosSum += this.utxos[i].satoshis;
+  }
+};
+
+BitcoreWalletTransaction.prototype._getDesiredOutputAmount = function() {
+  this.nonChangeOutputSum = 0;
+  for(var i = 0; i < this._addresses.length; i++) {
+    if (!this._addresses[i].changeAddress) {
+      var amount = this._getOutputAmount(this._addresses[i]);
+      this.nonChangeOutputSum += (amount || 0);
+    } else {
+      this._changeAddressIndex = i;
+    }
+  }
 };
 
 BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
@@ -91,15 +125,14 @@ BitcoreWalletTransaction.prototype._addInputs = function() {
 
 BitcoreWalletTransaction.prototype._addOutputs = function() {
   for(var i = 0; i < this._addresses.length; i++) {
-    var amount = this._getOutputAmount(this._addresses[i]);
-    this.outputAmount += amount
-    this.tx.to(this._addresses[i].address, amount);
+    if (!this._addresses[i].changeAddress) {
+      this.outputAmount += amount;
+      this.tx.to(this._addresses[i].address, this._addresses[i].satoshis);
+    }
   }
 };
 
 BitcoreWalletTransaction.prototype._getOutputAmount = function(addr) {
-    //if there is no amount for the output -and- this is listed as a change address, then this is good to go
-    //if there is no amount for the output -and- there is more than one non-change output containing a null value for the amount, then this is an error and we cannot continue. The output amount are ambiguous (we don't know how much to sent to each non-change output)
   var unsetOutputAmount = !addr.changeAddress && !addr.satoshis;
   if (unsetOutputAmount && this._unsetOutputAmounts > 0) {
     throw 'Supplied output address(es) amounts are ambiguous, please check the "satoshis" field, aborting.';
@@ -163,7 +196,7 @@ BitcoreWalletTransaction.prototype._generateStats = function() {
 BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   var self = this;
   //set output addresses, amounts and utxos
-  self._setInputInformation();
+  self._setIOInformation();
   //create empty tx
   self._createTransaction();
   //add outputs
