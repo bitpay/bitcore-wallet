@@ -25,7 +25,8 @@ describe('BitcoreWalletTransaction', function() {
             testDirPath + '/tmp/output.hex'
           ],
           maxTxSize: 1E4,
-          maxSatoshis: 30 * 1E8
+          maxSatoshis: 30 * 1E8,
+          feeperbyte: 200
         }
       });
       done();
@@ -120,31 +121,47 @@ describe('BitcoreWalletTransaction', function() {
     tx._isP2PKH(utxo).should.be.true;
   });
 
-  it('should set a fee on the transaction', function() {
-    tx._setInputInformation();
-    tx._createTransaction();
-    tx._addOutputs();
-    tx._setFee();
-    tx.tx.getFee().should.be.equal(21840);
-  });
-
-  it('should check amounts', function() {
+  it('should set a fee on the transaction', function(done) {
     tx._setInputInformation();
     tx._createTransaction();
     tx._addOutputs();
     tx._addInputs();
-    tx._setFee();
-    expect(tx._checkAmounts.bind(tx)).to.not.throw(Error);
+    tx._setFee(function(err) {
+      if(err) {
+        return done(err);
+      }
+      tx.tx.getFee().should.be.equal(47600);
+      done();
+    });
   });
 
-  it('should check amounts and error', function() {
+  it('should check amounts', function(done) {
+    tx._setInputInformation();
+    tx._createTransaction();
+    tx._addOutputs();
+    tx._addInputs();
+    tx._setFee(function(err) {
+      if(err) {
+        return done(err);
+      }
+      expect(tx._checkAmounts.bind(tx)).to.not.throw(Error);
+      done();
+    });
+  });
+
+  it('should check amounts and error', function(done) {
     tx._setInputInformation();
     tx._createTransaction();
     tx._addresses[0].satoshis = tx._addresses[0].satoshis + 1000;
     tx._addOutputs();
     tx._addInputs();
-    tx._setFee();
-    expect(tx._checkAmounts.bind(tx)).to.throw('Output amounts exceed input amounts.');
+    tx._setFee(function(err) {
+      if(err) {
+        return done(err);
+      }
+      expect(tx._checkAmounts.bind(tx)).to.throw('Output amounts exceed input amounts.');
+      done();
+    });
   });
 
   it('should write unchecked serialized tx to a file', function(done) {
@@ -163,13 +180,18 @@ describe('BitcoreWalletTransaction', function() {
     });
   });
 
-  it('should generate stats', function() {
+  it('should generate stats', function(done) {
     tx._setInputInformation();
     tx._createTransaction();
     tx._addOutputs();
     tx._addInputs();
-    tx._setFee();
-    tx._generateStats().should.equal('Total BTC sent: 14.00033320\nNumber of output addresses: 2\nTotal fees in satoshis: 33320\nTotal size in bytes: 238\nSatoshis per byte: 140\n');
+    tx._setFee(function(err) {
+      if(err) {
+        return done(err);
+      }
+      tx._generateStats().should.equal('Total BTC sent: 14.00033320\nNumber of output addresses: 2\nTotal fees in satoshis: 47600\nTotal size in bytes: 238\nSatoshis per byte: 200\n');
+      done();
+    });
   });
 
 });

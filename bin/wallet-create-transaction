@@ -7,6 +7,7 @@ input file format:
 */
 var program = require('commander');
 var bitcore = require('bitcore-lib');
+var https = require('https');
 var fs = require('fs');
 var _ = require('lodash');
 var inputFileFormat = '{ utxos: [ { txid: <txid>, vout: <int>, satoshis: <int>, scriptPubKey: <hex> }, ... ],\n' +
@@ -26,11 +27,9 @@ var BitcoreWalletTransaction = function(options) {
   this._processArgs();
   this.inputFile = this.args[0];
   this.outputFile = this.args[1];
-  this.maxTxSize = options.maxtxsize || 1E5;
-  this.maxSatoshis = options.maxsatoshis || 50 * 1E8;
-  this.feeperbyte = options.feeperbyte;
-  this.inputAmount = 0;
-  this.outputAmount = 0;
+  this.maxTxSize = this.program.maxtxsize || 1E5;
+  this.maxSatoshis = this.program.maxsatoshis || 50 * 1E8;
+  this.feeperbyte = this.program.feeperbyte;
   this.signatureByteLength = 72;
 };
 
@@ -43,15 +42,12 @@ BitcoreWalletTransaction.prototype._processArgs = function() {
   }
 };
 
-BitcoreWalletTransaction.prototype._setIOInformation = function() {
+BitcoreWalletTransaction.prototype._setInputInformation = function() {
   //letting this throw if needed
   var inputInfo = require(this.inputFile);
   this._addresses = inputInfo.addresses;
   this.utxos = inputInfo.utxos;
   this._performSanityChecks();
-  this._getUtxosAmount();
-  this._getDesiredOutputAmount();
-  this._setChangeAddressStatus();
 };
 
 BitcoreWalletTransaction.prototype._performSanityChecks = function() {
@@ -60,29 +56,6 @@ BitcoreWalletTransaction.prototype._performSanityChecks = function() {
     !this._addresses ||
     this._addresses.length === 0) {
     throw 'Input file content does not contain utxos or output addresses.';
-  }
-};
-
-BitcoreWalletTransaction.prototype._setChangeAddressStatus = function() {
-  return nonChangeOutputSum > 0 ? this._changeAddressNeeded = true : this._changeAddressNeeded = false;
-};
-
-BitcoreWalletTransaction.prototype._getUtxosAmount = function() {
-  this.utxosSum = 0;
-  for(var i = 0; i < this.utxos.length; i++) {
-    this.utxosSum += this.utxos[i].satoshis;
-  }
-};
-
-BitcoreWalletTransaction.prototype._getDesiredOutputAmount = function() {
-  this.nonChangeOutputSum = 0;
-  for(var i = 0; i < this._addresses.length; i++) {
-    if (!this._addresses[i].changeAddress) {
-      var amount = this._getOutputAmount(this._addresses[i]);
-      this.nonChangeOutputSum += (amount || 0);
-    } else {
-      this._changeAddressIndex = i;
-    }
   }
 };
 
@@ -117,7 +90,6 @@ BitcoreWalletTransaction.prototype._addInputs = function() {
       !this._hasInputAmount(this.utxos[i])) {
       break;
     }
-    this.inputAmount += this.utxos[i].satoshis;
     utxos.push(this.utxos[i]);
   }
   this.tx.from(utxos);
@@ -126,21 +98,27 @@ BitcoreWalletTransaction.prototype._addInputs = function() {
 BitcoreWalletTransaction.prototype._addOutputs = function() {
   for(var i = 0; i < this._addresses.length; i++) {
     if (!this._addresses[i].changeAddress) {
-      this.outputAmount += amount;
-      this.tx.to(this._addresses[i].address, this._addresses[i].satoshis);
+
+      var output = this._addresses[i];
+      var unsetAmountOutput = !output.changeAddress && !output.satoshis;
+      if (unsetAmountOutput && this._unsetOutput) {
+        throw 'Supplied output address(es) amounts are ambiguous, please check the "satoshis" field, aborting.';
+      }
+
+      if (unsetAmountOutput) {
+        this._unsetOutput = true;
+      }
+
+      this.tx.to(output.address, output.satoshis);
+
+    } else {
+      if (this._changeAddressIndex >= 0) {
+        throw 'multiple change addresses were given in inputs, aborting.';
+      } else {
+        this._changeAddressIndex = i;
+      }
     }
   }
-};
-
-BitcoreWalletTransaction.prototype._getOutputAmount = function(addr) {
-  var unsetOutputAmount = !addr.changeAddress && !addr.satoshis;
-  if (unsetOutputAmount && this._unsetOutputAmounts > 0) {
-    throw 'Supplied output address(es) amounts are ambiguous, please check the "satoshis" field, aborting.';
-  }
-  if (unsetOutputAmount) {
-    this._unsetOutputAmounts++;
-  }
-  return (unsetOutputAmount || addr.changeAddress) ? 0 : addr.satoshis;
 };
 
 BitcoreWalletTransaction.prototype._isP2PKH = function(utxo) {
@@ -157,24 +135,67 @@ BitcoreWalletTransaction.prototype._hasInputSpace = function(utxo) {
 };
 
 BitcoreWalletTransaction.prototype._calculateSigSpace = function(utxo) {
-  //TODO: redeem scripts come into play here to deal with P2SH
   return (this.tx.inputs.length + 1) * this.signatureByteLength;
 };
 
-BitcoreWalletTransaction.prototype._setFee = function() {
-  var fee = this.feeperbyte || 140;
-  this.tx.fee(this.tx.uncheckedSerialize().length * fee);
+BitcoreWalletTransaction.prototype._setFee = function(callback) {
+  var self = this;
+  if (self.feeperbyte >= 0) {
+    self.tx.fee(this.tx.uncheckedSerialize().length * self.feeperbyte);
+    return setImmediate(callback);
+  }
+  self._getFeePerByte(callback);
+};
+
+BitcoreWalletTransaction.prototype._getFeePerByte = function(callback) {
+  var self = this;
+  var data = '';
+  var req = https.request('https://bitcoinfees.21.co/api/v1/fees/recommended', function(res) {
+    var error;
+    res.on('data', function(chunk) {
+      data += chunk;
+    });
+    res.on('error', function(err) {
+      error = err;
+    });
+    res.on('end', function() {
+      if (error) {
+        return callback(err);
+      }
+      try {
+        data = JSON.parse(data);
+        if (data.hourFee >= 0) {
+          self.tx.fee(self.tx.uncheckedSerialize().length * data.hourFee);
+          callback();
+        }
+      } catch(e) {
+        callback(e);
+      }
+    });
+  });
+  req.write('');
+  req.end();
+};
+
+BitcoreWalletTransaction.prototype._setChangeAddress = function() {
+  if (this._changeAddressIndex >= 0) {
+    this.tx.change(this._addresses[this._changeAddressIndex]);
+  }
 };
 
 BitcoreWalletTransaction.prototype._setDeferredOutputAmounts = function() {
-  for(var i = 0; i < this.tx.outputs.length; i++) {
-
+  if (this._unsetOutput) {
+    for(var i = 0; i < this.tx.outputs.length; i++) {
+      if (this.tx.outputs[i].satoshis === 0) {
+        this.tx.outputs[this._unsetOutput].satoshis = this.inputAmount - this.tx.getFee();
+        break;
+      }
+    }
   }
-
 };
 
 BitcoreWalletTransaction.prototype._checkAmounts = function() {
-  if (this.outputAmount > (this.inputAmount - this.tx.getFee())) {
+  if (this.tx.outputAmount > (this.tx.inputAmount - this.tx.getFee())) {
     throw 'Output amounts exceed input amounts.';
   }
 };
@@ -185,7 +206,7 @@ BitcoreWalletTransaction.prototype._createTransaction = function() {
 
 BitcoreWalletTransaction.prototype._generateStats = function() {
   var stats = '';
-  stats += 'Total BTC sent: ' + (this.inputAmount / 1E8).toFixed(8) + '\n';
+  stats += 'Total BTC sent: ' + (this.tx.inputAmount / 1E8).toFixed(8) + '\n';
   stats += 'Number of output addresses: ' + this._addresses.length + '\n';
   stats += 'Total fees in satoshis: ' + this.tx.getFee() + '\n';
   stats += 'Total size in bytes: ' + this.tx.uncheckedSerialize().length + '\n';
@@ -196,7 +217,7 @@ BitcoreWalletTransaction.prototype._generateStats = function() {
 BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   var self = this;
   //set output addresses, amounts and utxos
-  self._setIOInformation();
+  self._setInputInformation();
   //create empty tx
   self._createTransaction();
   //add outputs
@@ -204,17 +225,24 @@ BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   //add inputs
   self._addInputs();
   //set fee
-  self._setFee();
-  //set deferred output amounts
-  self._setDeferredOutputAmounts
-  //check amounts
-  self._checkAmounts(); //throws
-  //write tx
-  self._writeOutputFile(function(err) {
+  self._setFee(function(err) {
     if(err) {
-      return callback(err);
+      //try other ways of getting the fee?
+      throw err;
     }
-    callback(null, self._generateStats());
+    //set deferred output amounts
+    self._setDeferredOutputAmounts();
+    //set change address output
+    self._setChangeAddress();
+    //check amounts
+    self._checkAmounts(); //throws
+    //write tx
+    self._writeOutputFile(function(err) {
+      if(err) {
+        return callback(err);
+      }
+      callback(null, self._generateStats());
+    });
   });
 };
 
