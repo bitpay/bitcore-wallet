@@ -14,7 +14,7 @@ var inputFileFormat = '{ utxos: [ { txid: <txid>, vout: <int>, satoshis: <int>, 
 'addresses: [ { address: <addresses>, satoshis: <OPTIONAL int>, changeAddress: <bool> }, ... ] }';
 
 program
-  .option('-s, --maxtxsize <maxtxsize>', 'Maximum Transaction Size in bytes, default 100 kB')
+  .option('-s, --maxtxsize <maxtxsize>', 'Maximum Transaction Size in bytes, default 100 kB (100,000 bytes)')
   .option('-a, --maxsatoshis <maxsatoshis>', 'Maximum Satoshis, default 50 BTC')
   .option('-f, --feeperbyte <feeperbyte>', 'Specify a fee per byte')
   .usage('<input file> <tx output file or stdout>, e.g. wallet-create-transaction input.json tx.hex\n\nInput file format ' +

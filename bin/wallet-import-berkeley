@@ -2,23 +2,23 @@
 
 var program = require('commander');
 var fs = require('fs');
-var utils = require('./cli-utils');
 var exporter = require('bitcoin-wallet-node');
 var EventEmitter = require('events').EventEmitter;
 
-program = utils.configureCommander(program);
-
 program
-  .option('-t, --testnet', 'testnet network')
-  .option('-f, --file <file>', 'import from file')
+  .option('-t, --testnet', 'testnet/regtest network')
+  .option('-f, --file <wallet.dat file>', 'import from wallet.dat file')
   .usage('[options] <new wallet file name> e.g. wallet-import-berkeley -f ~/.bitcoin/wallet.dat wallet.json')
   .parse(process.argv);
 
 var args = program.args;
 
-if (!args[0] || !fs.existsSync(program.file))
+if (!args[0]) {
   program.help();
-
+} else if (fs.existsSync(args[0])) {
+  console.error('Output file: "' + args[0] + '" already exists, not over-writing, aborting.');
+  process.exit(-1);
+}
 
 function exportWallet(callback) {
   var results = '';
