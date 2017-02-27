@@ -17,6 +17,7 @@
     "url": "https://github.com/bitpay/bitcore-wallet/issues"
   },
   "dependencies": {
+    "async": "^2.1.5",
     "bitcoin-wallet-node": "kleetus/bitcoin-wallet-node#master",
     "bitcore-lib": "^0.13.19",
     "bitcore-wallet-client": "4.4.2",

@@ -1,0 +1,77 @@
+#!/usr/bin/env node
+
+var program = require('commander');
+var fs = require('fs');
+var async = require('async');
+var Transaction = require('bitcore-lib').Transaction;
+var Address = require('bitcore-lib').Address;
+
+
+program
+  .option('-f, --walletfile <walletfile>', 'Wallet file to refer to for private keys. Default: ~/.wallet.json')
+  .usage('[options] e.g. wallet-sign-nonhd -f wallet.json <input tx file> <output signed tx file>')
+  .parse(process.argv);
+
+var args = program.args;
+if (!args[0]) {
+  program.help();
+} else if (args[1] && fs.existsSync(args[1])) {
+  console.error('Output file: "' + args[1] + '" already exists, not over-writing, aborting.');
+  process.exit(-1);
+}
+
+var walletFile = program.walletfile || (process.env.HOME + '/.wallet.json');
+
+function readInputTxFiles(file1, file2) {
+  return [file1, file2].map(function(file) {
+    return require(file);
+  });
+}
+
+function createTx(jsonTx, callback) {
+    return new Transaction(jsonTx.tx));
+}
+
+function readPrivateKeys(tx, keys) {
+  //need the address from the prevTxid
+  var network = getNetwork(keys);
+  var addresses = tx.inputs.map(function(input) {
+    return input.script.toAddress();
+  });
+  var pks = keys.map(function(key) {
+    if (key.pubKey) {
+      var walletAddress = new Address(key.pubKey, network);
+    }
+  });
+}
+
+function signTx(decryptedPks, tx, callback) {
+  return tx.sign(decryptedPks);
+}
+
+function writeOutputFile(file, data, callback) {
+  fs.open(file, 'wx', function(err, fd) {
+    if (err) {
+      return callback(err);
+    }
+    fs.write(fd, data, function(err) {
+      if(err) {
+        return callback(err);
+      }
+      callback();
+    });
+  });
+}
+
+
+var inputs = readInputFiles(args[0], walletFile);
+var tx = createTx(txdata);
+var pks = readPrivateKeys(inputs);
+var decrypted_pks = decryptPrivateKeysForTx(pks);
+var signed_tx = signTx(decrypted_pks);
+writeOutputFile(tx.checkSerialize(), function(err) {
+  if(err) {
+    throwe err;
+  }
+  console.log('done');
+});
