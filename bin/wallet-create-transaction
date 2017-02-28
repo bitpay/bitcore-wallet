@@ -30,21 +30,34 @@ var BitcoreWalletTransaction = function(options) {
   this.outputFile = this.args[1];
   this.maxTxSize = this.program.maxtxsize || 1E5;
   this.feeperbyte = this.program.feeperbyte;
-  this.signatureByteLength = 72;
+  this.signatureByteLength = 72; //this is worst case size, actual size could be -2 byte
 };
 
-BitcoreWalletTransaction.prototype._setMaximumOutputAmount = function() {
-  var amount = 0;
+BitcoreWalletTransaction.prototype._setUtxoAmounts = function() {
+  for(var i = 0; i < this.utxos.length; i++) {
+    this.utxos[i].satoshis = this.utxos[i].satoshis || Math.ceil(this.utxos[i].amount * 1E8);
+  }
+};
+
+BitcoreWalletTransaction.prototype._filterUtxos = function() {
+  var self = this;
+  this.utxos = _.filter(this.utxos, function(utxo) {
+    return utxo.satoshis <= self.maxSatoshis && self._isP2PKH(utxo);
+  });
+};
+
+BitcoreWalletTransaction.prototype._sortUtxos = function() {
+  this.utxos = _.sortBy(this.utxos, 'satoshis').reverse();
+};
+
+BitcoreWalletTransaction.prototype._setOutputAmounts = function() {
   for(var i = 0; i < this._addresses.length; i++) {
     var address = this._addresses[i];
     if (!address.changeAddress) {
-      amount += address.satoshis;
+      address.satoshis = address.satoshis || 0;
     }
   }
   this.maxSatoshis = this.program.maxsatoshis || 50 * 1E8;
-  if (amount < this.maxSatoshis) {
-    this.maxSatoshis = amount;
-  }
 };
 
 BitcoreWalletTransaction.prototype._processArgs = function() {
@@ -61,16 +74,37 @@ BitcoreWalletTransaction.prototype._setInputInformation = function() {
   var inputInfo = require(this.inputFile);
   this._addresses = inputInfo.addresses;
   this.utxos = inputInfo.utxos;
-  this._performSanityChecks();
 };
 
 BitcoreWalletTransaction.prototype._performSanityChecks = function() {
-  if (!this.utxos ||
-    this.utxos.length === 0 ||
-    !this._addresses ||
-    this._addresses.length === 0) {
-    throw 'Input file content does not contain utxos or output addresses.';
+  var notGood = !this.utxos ||
+                this.utxos.length === 0 ||
+               !this._addresses ||
+               this._addresses.length === 0 ||
+               !this._sufficientInputs();
+  if (notGood) {
+    throw 'Inputs amounts cannot satify the output amounts.';
   }
+};
+
+BitcoreWalletTransaction.prototype._sufficientInputs = function() {
+  var outAmount = 0;
+  for(var i = 0; i < this._addresses.length; i++) {
+    outAmount += this._addresses[i].satoshis || 0;
+  }
+  //user did not set output therefore any inputs will satisfy
+  if (outAmount === 0) {
+    return true;
+  }
+  var inAmount = 0;
+  for(var j = 0; j < this.utxos.length; j++) {
+    inAmount += this.utxos[i].satoshis || 0;
+  }
+  //this is just a sanity check and won't factor in a fee
+  if (inAmount > outAmount) {
+    return true;
+  }
+  return false;
 };
 
 BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
@@ -98,20 +132,17 @@ BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
 BitcoreWalletTransaction.prototype._addInputs = function() {
   var utxos = [];
 
+  //if output amounts are EXPLICITLY set, then we MUST satisfy those.
+  //we must also provide a fee, these are additional inputs.
+  //the above is secondary to the space requirements and the maxSatoshis contraints
   for(var i = 0; i < this.utxos.length; i++) {
-    this._getAmount(this.utxos[i]);
-console.log(this.utxos[i]);
-  //  process.exit(0);
-    if (!this._isP2PKH(this.utxos[i])) {
-      continue;
-    } else if (!this._hasInputSpace(this.utxos[i]) ||
+
+    if (!this._hasInputSpace(this.utxos[i]) ||
       !this._hasInputAmount(this.utxos[i])) {
-      break;
+      continue;
     }
 
     this.tx.from(this.utxos[i]);
-
-console.log(this.tx.inputAmount);
   }
 };
 
@@ -146,21 +177,22 @@ BitcoreWalletTransaction.prototype._isP2PKH = function(utxo) {
   return script.isPublicKeyHashOut();
 };
 
-BitcoreWalletTransaction.prototype._getAmount = function(utxo) {
-  utxo.satoshis = utxo.satoshis || (utxo.amount * 1E8);
-};
 
 BitcoreWalletTransaction.prototype._hasInputAmount = function(utxo) {
-  var ret = (this.tx.inputAmount + utxo.satoshis) <= this.maxSatoshis;
-console.log(this.tx.inputAmount);
-console.log(utxo.satoshis);
-  console.log(this.maxSatoshis);
+  //have we surpassed max satoshis -or- output amount + projected fee?
+  var runningFee = this._calculateRunningFee(utxo);
+  var txAmountWithThisUtxo = this.tx.inputAmount + utxo.satoshis + runningFee;
+  var ret = (txAmountWithThisUtxo <= this.maxSatoshis) || (txAmountWithThisUtxo <= this.tx.outputAmount);
   return ret;
+};
+
+BitcoreWalletTransaction.prototype._calculateRunningFee = function(utxo) {
+  var runningFee = (this.tx.uncheckedSerialize().length + this._calculateSigSpace(utxo)) * this.feeperbyte;
+  return runningFee;
 };
 
 BitcoreWalletTransaction.prototype._hasInputSpace = function(utxo) {
   var ret = (this.tx.uncheckedSerialize().length + this._calculateSigSpace(utxo)) <= this.maxTxSize;
-console.log(ret);
   return ret;
 };
 
@@ -168,13 +200,8 @@ BitcoreWalletTransaction.prototype._calculateSigSpace = function(utxo) {
   return (this.tx.inputs.length + 1) * this.signatureByteLength;
 };
 
-BitcoreWalletTransaction.prototype._setFee = function(callback) {
-  var self = this;
-  if (self.feeperbyte >= 0) {
-    self.tx.fee(this.tx.uncheckedSerialize().length * self.feeperbyte);
-    return setImmediate(callback);
-  }
-  self._getFeePerByte(callback);
+BitcoreWalletTransaction.prototype._setFee = function() {
+  this.tx.fee(this.tx.uncheckedSerialize().length * this.feeperbyte);
 };
 
 BitcoreWalletTransaction.prototype._getRemoteData = function(url, callback) {
@@ -205,14 +232,18 @@ BitcoreWalletTransaction.prototype._getRemoteData = function(url, callback) {
 
 BitcoreWalletTransaction.prototype._getFeePerByte = function(callback) {
   var self = this;
+  if (self.feeperbyte >= 0) {
+    return setImmediate(function() {
+      callback(null, self.feeperbyte);
+    });
+  }
   self._getRemoteData('https://bitcoinfees.21.co/api/v1/fees/recommended', function(err, data) {
     if(err) {
       return callback(err);
     }
 
     if (data.hourFee >= 0) {
-      self.tx.fee(self.tx.uncheckedSerialize().length * data.hourFee);
-      callback();
+      callback(null, data.hourFee);
     }
   });
 };
@@ -220,17 +251,6 @@ BitcoreWalletTransaction.prototype._getFeePerByte = function(callback) {
 BitcoreWalletTransaction.prototype._setChangeAddress = function() {
   if (this._changeAddressIndex >= 0) {
     this.tx.change(this._addresses[this._changeAddressIndex].address);
-  }
-};
-
-BitcoreWalletTransaction.prototype._setDeferredOutputAmounts = function() {
-  if (this._unsetOutput) {
-    for(var i = 0; i < this.tx.outputs.length; i++) {
-      if (this.tx.outputs[i].satoshis === 0) {
-        this.tx.outputs[this._unsetOutput].satoshis = this.inputAmount - this.tx.getFee();
-        break;
-      }
-    }
   }
 };
 
@@ -249,9 +269,8 @@ BitcoreWalletTransaction.prototype._getExchangeRate = function(callback) {
 };
 
 BitcoreWalletTransaction.prototype._checkAmounts = function() {
-console.log(this.tx.inputAmount);
-  if (this.tx.outputAmount > (this.tx.inputAmount + this.tx.getFee())) {
-    throw 'Output amounts exceed input amounts.';
+  if (this.tx.outputAmount !== (this.tx.inputAmount + this.tx.getFee())) {
+    throw 'Inputs, fees and outputs did not balance during final check.';
   }
 };
 
@@ -262,35 +281,56 @@ BitcoreWalletTransaction.prototype._createTransaction = function() {
 BitcoreWalletTransaction.prototype._generateStats = function() {
   var stats = '';
   stats += 'Total BTC sent: ' + (this.tx.inputAmount / 1E8).toFixed(8) + '\n';
-  stats += 'Number of output addresses: ' + this._addresses.length + '\n';
-  stats += 'Total fees in satoshis: ' + this.tx.getFee() + '\n';
+  stats += 'Number of output addresses: ' + this.tx.outputs.length + '\n';
+  stats += 'BTC amount sent to non-change address(es): ' + 0 + '\n';
+  stats += 'BTC amount sent to change address: ' + 0 + '\n';
+  stats += 'Number of inputs used: ' + this.tx.inputs.length + '\n';
   stats += 'Total fees in BTC: ' + (this.tx.getFee() / 1E8).toFixed(8) + '\n';
-  stats += 'Total fees in USD: ' + this.feeInUSD + '\n';
+  stats += 'Total fees in USD: $' + this.feeInUSD + '\n';
   stats += 'Total size in bytes: ' + this.tx.uncheckedSerialize().length + '\n';
-  stats += 'Satoshis per byte: ' + Math.ceil(this.tx.getFee() / this.tx.uncheckedSerialize().length) + '\n';
+  stats += 'Fee as satoshis per byte: ' + Math.ceil(this.tx.getFee() / this.tx.uncheckedSerialize().length) + '\n';
   return stats;
 };
 
+//these are all P2PKH inputs at 147 bytes, the outputs are typically 34 bytes
+//how many inputs are we going to need to satify the outputs and the fee?
+//will we need a change address?
+
+//If the user doesn't set an output amount, then things become dramatically easier, so figure this out right away
+
+//If no output set, then we just need to worry about max size and max amount, but NO CHANGE address
+
+//If outputs set, we need to check if we have the inputs to satisfy them and the fee, the more inputs used, the greater the fee needed. There will also be a change address needed, most likely
+//If the utxos are sorted highest to lowest, this makes things cheaper
 BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   var self = this;
   //set output addresses, amounts and utxos
   self._setInputInformation();
   //set the max output amount
-  this._setMaximumOutputAmount();
-  //create empty tx
-  self._createTransaction();
-  //add outputs
-  self._addOutputs();
-  //add inputs
-  self._addInputs();
-  //set fee
-  self._setFee(function(err) {
+  self._setOutputAmounts();
+  //deal with utxos that have an amount field in btc
+  self._setUtxoAmounts();
+  //filter utxos
+  self._filterUtxos();
+  //perform sanity checks on the inputs/outputs
+  self._performSanityChecks();
+  //get fee rate
+  self._getFeePerByte(function(err, feeRate) {
     if(err) {
       //try other ways of getting the fee?
       throw err;
     }
-    //set deferred output amounts
-    self._setDeferredOutputAmounts();
+    self.feeperbyte = feeRate;
+    //sort utcos, high amt to low
+    self._sortUtxos();
+    //create empty tx
+    self._createTransaction();
+    //add outputs
+    self._addOutputs();
+    //add inputs
+    self._addInputs();
+    //set fee
+    self._setFee();
     //set change address output
     self._setChangeAddress();
     //check amounts

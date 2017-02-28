@@ -15382,8 +15382,7 @@
   ],
   "addresses": [
     { "address": "mnyCkdsrR5Nb4fGhbEjHR7o15qUmsjoPxd",
-      "changeAddress": false,
-      "satoshis": 50000000000
+      "changeAddress": false
     },
     {
       "address": "n3N9irHyMQKCryRy9TCz8uyKgmL6Zcy2Z3",
