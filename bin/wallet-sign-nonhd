@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 var program = require('commander');
+var path = require('path');
 var fs = require('fs');
 var async = require('async');
-var Transaction = require('bitcore-lib').Transaction;
-var Address = require('bitcore-lib').Address;
-
+var utils = require('../util/crypto-functions.js');
+var bitcore = require('bitcore-lib');
+var Transaction = bitcore.Transaction;
 
 program
   .option('-f, --walletfile <walletfile>', 'Wallet file to refer to for private keys. Default: ~/.wallet.json')
@@ -20,29 +21,110 @@ if (!args[0]) {
   process.exit(-1);
 }
 
-var walletFile = program.walletfile || (process.env.HOME + '/.wallet.json');
+var walletFile = program.walletfile ?
+  path.resolve(__dirname, '../' + program.walletfile) :
+  process.env.HOME + '/.wallet.json';
+var inputFile = path.resolve(__dirname, '../' + args[0]);
+var extraFields = ['network', 'salt', 'derivationMethod', 'rounds', 'masterKeyCt'];
 
-function readInputTxFiles(file1, file2) {
+function readInputFiles(file1, file2) {
   return [file1, file2].map(function(file) {
     return require(file);
   });
 }
 
-function createTx(jsonTx, callback) {
-    return new Transaction(jsonTx.tx));
+function createWalletMap(wallet) {
+  var res = {};
+  for(var i = 0; i < wallet.length; i++) {
+    if (hasNeededFields(res, extraFields)) {
+      break;
+    }
+    var entry = wallet[i];
+    if (entry.network) {
+      res.network = entry.network;
+    } else if (entry.salt) {
+      res.salt = entry.salt;
+      res.derivatonMethod = entry.derivatonMethod;
+      res.rounds = entry.rounds;
+      res.masterKeyCt = entry.cipherText;
+    }
+  }
+  if (!hasNeededFields(res, extraFields)) {
+    return;
+  }
+  wallet.forEach(function(key) {
+    if (key.pubKey) {
+      res[key.pubKey] = key;
+    }
+  });
+  return res;
+}
+
+function hasNeededFields(item, fields) {
+  if (Object.keys(item).length === fields.length) {
+    fields.forEach(function(field) {
+      if (!item[field]) { return false; }
+    });
+    return true;
+  }
+  return false;
+}
+
+
+function createTx(txData) {
+  return new Transaction(txData.tx);
+}
+
+function decryptMasterKey(walletMap, callback) {
+  utils.getPassphrase(function(passphrase) {
+    utils.decryptSecret({
+      passphrase: passphrase,
+      salt: walletMap.salt,
+      derivationOptions: {
+        rounds: walletMap.rounds
+      }
+    }, function(err, hashedPassphrase) {
+      if(err) {
+        return callback(err);
+      }
+      utils.decrypt({
+        key: hashedPassphrase
+      }, callback);
+    });
+  });
+}
+
+function decryptPrivateKeys(keys, walletMap, callback) {
+  decryptMasterKey(walletMap, function(err, plainTextMasterKey) {
+    if(err) {
+      return callback(err);
+    }
+    async.mapLimit(keys, 10, function(key, next) {
+
+      if (extraFields.indexOf(key) !== -1) {
+        next();
+      }
+
+      utils.decrypt({
+        cipherText: walletMap[key].cipherText,
+        key: plainTextMasterKey,
+        iv: bitcore.crypto.Hash.sha256sha256(new Buffer(walletMap[key].pubKey, 'hex'))
+      }, next);
+
+    }, function(err, res) {
+      if(err) {
+        return callback(err);
+      }
+      callback(null, res);
+    });
+  });
 }
 
 function readPrivateKeys(tx, keys) {
-  //need the address from the prevTxid
-  var network = getNetwork(keys);
   var addresses = tx.inputs.map(function(input) {
     return input.script.toAddress();
   });
-  var pks = keys.map(function(key) {
-    if (key.pubKey) {
-      var walletAddress = new Address(key.pubKey, network);
-    }
-  });
+  return _.intersect([Object.keys(walletMap), addresses]);
 }
 
 function signTx(decryptedPks, tx, callback) {
@@ -63,15 +145,20 @@ function writeOutputFile(file, data, callback) {
   });
 }
 
-
-var inputs = readInputFiles(args[0], walletFile);
-var tx = createTx(txdata);
+var inputs = readInputFiles(inputFile, walletFile);
+var tx = createTx(inputs[0]);
+console.log(tx);
+var walletMap = createWalletMap(inputs[1]);
 var pks = readPrivateKeys(inputs);
-var decrypted_pks = decryptPrivateKeysForTx(pks);
-var signed_tx = signTx(decrypted_pks);
-writeOutputFile(tx.checkSerialize(), function(err) {
+decryptPrivateKeysForTx(pks, walletMap, function(err, decryptedPks) {
   if(err) {
-    throwe err;
+    return callback(err);
   }
-  console.log('done');
+  var signed_tx = signTx(decryptedPks);
+  writeOutputFile(tx.checkSerialize(), function(err) {
+    if(err) {
+      throw err;
+    }
+    console.log('done');
+  });
 });

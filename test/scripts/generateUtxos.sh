@@ -1,16 +1,15 @@
 #!/bin/bash
 
-minerDatadir=$HOME/.bitcore/data
-clientDatadir="$HOME/Library/Application Support/Bitcoin"
+cli="$HOME/source/bwdb/node_modules/bitcore-node/bin/bitcoin-0.12.1/bin/bitcoin-cli"
+datadir=$HOME/regtest_wallets
 network=regtest
 numOfUtxos=1000
 maxBTC=2
 currentAmount=0.0
-minerOpts="-datadir=${minerDatadir} -${network}"
-clientOpts="-datadir=\"${clientDatadir}\" -${network}"
+opts="-datadir=${datadir}"
 
 function getAddress() {
-  cmd="bitcoin-cli ${clientOpts} getnewaddress"
+  cmd="$cli ${opts} getnewaddress"
   currentAddress=$(eval $cmd)
 }
 
@@ -24,9 +23,9 @@ while [ "${numOfUtxos}" -gt 0 ]; do
     getAmount
   done
   getAddress
-  sendcmd="bitcoin-cli ${minerOpts} sendtoaddress ${currentAddress} ${currentAmount}"
+  sendcmd="$cli ${opts} sendtoaddress ${currentAddress} ${currentAmount}"
   eval $sendcmd
-  gencmd="bitcoin-cli ${minerOpts} generate 1"
+  gencmd="$cli ${opts} generate 1"
   eval $gencmd
   let numOfUtxos-=1
 done
