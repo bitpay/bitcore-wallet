@@ -15382,7 +15382,8 @@
   ],
   "addresses": [
     { "address": "mnyCkdsrR5Nb4fGhbEjHR7o15qUmsjoPxd",
-      "changeAddress": false
+      "changeAddress": false,
+      "satoshis": 1000000000
     },
     {
       "address": "n3N9irHyMQKCryRy9TCz8uyKgmL6Zcy2Z3",

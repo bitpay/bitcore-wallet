@@ -17,8 +17,10 @@ Inputs Needed:
 
 Options explained:
 
-Maximum Transaction Size <maxtxsize>: The maximum size for the transaction in the number of bytes. The Bitcoin protocol's theoretical maximum transaction size, pre-segregated witness, is 1 MB (1,000,000 bytes) if the number of signature operations is also equal to or less than 20,000. DEFAULT: 100 kB (100,000 bytes).
+* Maximum Transaction Size -s <maxtxsize>: The maximum size for the transaction in the number of bytes. The Bitcoin protocol's theoretical maximum transaction size, pre-segregated witness, is 1 MB (1,000,000 bytes) if the number of signature operations is also equal to or less than 20,000. DEFAULT: 100 kB (100,000 bytes).
 
-Fee Per Byte: <feeperbyte>: The exact amount of satoshis per byte in the transaction. This setting includes the signatures that may be applied at a later time. This tool supports inputs of pay-to-public-key-hash only. Therefore, it can use a conservative value of 72 bytes for the size of a ECDSA type digitial signature and one signature per input.
+* Fee Per Byte -f <feeperbyte>: The exact amount of satoshis per byte in the transaction. This setting includes the signatures that may be applied at a later time. This tool supports inputs of pay-to-public-key-hash only. Therefore, it can use a conservative value of 72 bytes for the size of a ECDSA type digitial signature and one signature per input. DEFAULT: will use a dynamic fee per byte chosen by 21.co's fee calculator and/or Insight's fee estimator, whichever is available and has a lower estimate.
 
-Maximum Satoshis: <maxsatoshis>: The maximum amount of bitcoin, in satoshis, to make available to the non-change output addresses. This value will override the output amounts used in the input file.
+* Maximum Satoshis -a <maxamount>: The maximum amount of bitcoin to make available to the non-change output addresses. This value will override the output amounts used in the input file. DEFAULT: 50 BTC
+
+* Priority -p <priority>: The priority level, from 1 to 3, with 3 being the lowest priority. Generally, the highest priority (1) aims to have your transaction confirmed within the next 2 blocks. A priority of 2 should confirm in 3 blocks and so on. DEFAULT: Priority 2.
