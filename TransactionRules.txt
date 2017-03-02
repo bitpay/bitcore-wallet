@@ -7,13 +7,10 @@ Inputs Needed:
   a. each address may have a flag denoting whether is it a change address, DEFAULT: not a change address
   b. each address may optionally have a satoshi amount to send
   c. if a change address has an amount, it will be ignored
-  d. if the sum of the input amounts plus the fee are LESS THAN the desired non-change output amounts, then the transaction will not be constructed without further user invention
-    i. inAmount + fee < outAmount === error
-  e. if the sum of the input amounts plus the fee are GREATER THAN the desired non-change output amounts, then the transaction will be constructed and the change address will be used for the difference
-    i. inAmount + fee > outAmount === overflow to single change address
-  d. if the sum of the input amounts plus the fee are EQUAL TO the desired non-change output amounts, then the transaction will be constructed and the change address will NOT be used
-    i. inAmount + fee == outAmount === no error
-  f. if an amount is set on output address(es), then then the sum of these non-change output amounts will take precedence over the maximum satoshis setting
+  d. inAmount < outAmount + fee === error
+  e. inAmount > outAmount + fee === overflow to single change address
+  f. inAmount + fee == outAmount === no error
+  g. if an amount is set on output address(es), then then the sum of these non-change output amounts will take precedence over the maximum satoshis setting
 
 Options explained:
 

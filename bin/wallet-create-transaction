@@ -2,8 +2,8 @@
 
 /*
 input file format:
-{ utxos: [ { txid: <txid>, vout: <int>, satoshis: <int>, scriptPubKey: <hex> }, ... ],
-  addresses: [ { address: <address>, satoshis: <OPTIONAL int>, changeAddress: <bool> }, ... ] }
+{ utxos: [ { txid: <txid>, vout: <int>, <amount | satoshis>: <int>, scriptPubKey: <hex> }, ... ],
+  addresses: [ { address: <address>, <amount | satoshis>: <OPTIONAL int>, changeAddress: <bool> }, ... ] }
 */
 var program = require('commander');
 var bitcore = require('bitcore-lib');
@@ -38,6 +38,7 @@ var BitcoreWalletTransaction = function(options) {
   this._21FeesUrl = 'https://bitcoinfees.21.co/api/v1/fees/recommended';
   this.insightFeesUrl = 'https://insight.bitpay.com/api/utils/estimateFee?nbBlocks=2,3,4';
   this.outputAmount = 0;
+  this.bitcoinMinOutputAmount = 4000; //the real value is 1000 sats, but x4 for a more sane value minimum
 };
 
 BitcoreWalletTransaction.prototype._setUtxoAmounts = function() {
@@ -64,11 +65,15 @@ BitcoreWalletTransaction.prototype._setOutputAmounts = function() {
       if (address.amount) {
         address.satoshis = this._convertBTCToSat(address.amount);
       }
+      if (!address.satoshis) {
+        address.satoshis = 0;
+        this.deferredOutputsNeeded = true;
+      }
       this.outputAmount += address.satoshis;
     }
   }
-  if (this.program.maxAmount) {
-    this.maxSatoshis = this._convertBTCToSat(this.program.maxAmount);
+  if (this.program.maxamount) {
+    this.maxSatoshis = this._convertBTCToSat(this.program.maxamount);
   } else {
     this.maxSatoshis = this._convertBTCToSat(50);
   }
@@ -102,20 +107,16 @@ BitcoreWalletTransaction.prototype._performSanityChecks = function() {
 };
 
 BitcoreWalletTransaction.prototype._sufficientInputs = function() {
-  var outAmount = 0;
-  for(var i = 0; i < this._addresses.length; i++) {
-    outAmount += this._addresses[i].satoshis || 0;
-  }
   //user did not set output therefore any inputs will satisfy
-  if (outAmount === 0) {
+  if (this.outputAmount === 0) {
     return true;
   }
   var inAmount = 0;
-  for(var j = 0; j < this.utxos.length; j++) {
+  for(var i = 0; i < this.utxos.length; i++) {
     inAmount += this.utxos[i].satoshis || 0;
   }
   //this is just a sanity check and won't factor in a fee
-  if (inAmount > outAmount) {
+  if (inAmount > this.outputAmount) {
     return true;
   }
   return false;
@@ -144,38 +145,27 @@ BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
 };
 
 BitcoreWalletTransaction.prototype._addInputs = function() {
-  var utxos = [];
-
   //if output amounts are EXPLICITLY set, then we MUST satisfy those.
-  //we must also provide a fee, these are additional inputs.
-  //the above is secondary to the space requirements and the maxSatoshis contraints
+  //we must also provide a fee, which will require additional inputs apart from those that satisfy the specified outputs.
+  //the above contraints are secondary to the max space limitation and the max satoshis limitation
   for(var i = 0; i < this.utxos.length; i++) {
 
     if (!this._hasInputSpace(this.utxos[i]) ||
       this._hasSurpassedMaxSatoshis(this.utxos[i]) ||
       this._hasEnoughInputsForOutputs(this.utxos[i])) {
-console.log('not adding: ', i);
       continue;
     }
 
-console.log('adding utxo: ', i);
     this.tx.from(this.utxos[i]);
   }
 };
 
 BitcoreWalletTransaction.prototype._addOutputs = function() {
   for(var i = 0; i < this._addresses.length; i++) {
-    if (!this._addresses[i].changeAddress) {
 
-      var output = this._addresses[i];
-      var unsetAmountOutput = !output.changeAddress && !output.satoshis;
-      if (unsetAmountOutput && this._unsetOutput) {
-        throw 'Supplied output address(es) amounts are ambiguous, please check the "satoshis" field, aborting.';
-      }
+    var output = this._addresses[i];
 
-      if (unsetAmountOutput) {
-        this._unsetOutput = true;
-      }
+    if (!output.changeAddress) {
 
       this.tx.to(output.address, output.satoshis);
 
@@ -196,41 +186,53 @@ BitcoreWalletTransaction.prototype._isP2PKH = function(utxo) {
 
 BitcoreWalletTransaction.prototype._hasEnoughInputsForOutputs = function(utxo) {
   //if we add this utxo, will the sum of the inputs be equal to or less than projected fees plus the outputAmount
-  //if true, then we must NOT add this utxo to the tx
+  //TRUE === DO NOT ADD TO INPUTS!!!
   if (this.outputAmount === 0) {
     return false; //this means the user did not set the output amount. This Tx is a sweep where the output amounts are not important
   }
-  var txAmountWithThisUtxo = this.tx.inputAmount + utxo.satoshis;
-  var ret = txAmountWithThisUtxo >= (this._calculateRunningFee(utxo) + this.outputAmount);
-  return ret;
+  var inputAmountWithThisUtxo = this.tx.inputAmount + utxo.satoshis;
+  var feePlusOutputAmount = this._calculateRunningFee(utxo) + this.outputAmount;
+  //by adding this utxo, we overshoot the input amounts, the balance becomes the amount in the change address
+  //we would like to not use a change address, but we almost always have to anyway
+  var overshot = inputAmountWithThisUtxo > feePlusOutputAmount;
+  if (overshot && !this.inputAmountOvershot) {
+    this.inputAmountOvershot = true;
+    return false;
+  }
+  return overshot;
 };
 
 BitcoreWalletTransaction.prototype._hasSurpassedMaxSatoshis = function(utxo) {
-  //if we add this utxo, will the sum of the input amounts be greater than or equal to the maxSatoshis
+  //if we add this utxo, will the sum of the input amounts be greater than or equal to the maxSatoshis?
   //if true, then we must NOT add this utxo to the tx
   var txAmountWithThisUtxo = this.tx.inputAmount + utxo.satoshis;
-  var ret = txAmountWithThisUtxo >= this.maxSatoshis;
+  var ret = txAmountWithThisUtxo > this.maxSatoshis;
   return ret;
 };
 
 BitcoreWalletTransaction.prototype._calculateRunningFee = function(utxo) {
-  var runningFee = (this.tx.uncheckedSerialize().length + this._calculateSigSpace(utxo)) * this.feeperbyte;
+  var num = utxo ? 1 : 0;
+  var extraSpaceForChangeAddress = 0;
+  if (this._changeAddressIndex >= 0) {
+    extraSpaceForChangeAddress = 34;
+  }
+  var runningFee = (this._getTxSize() + this._calculateSigSpace(num) + extraSpaceForChangeAddress) * this.feeperbyte;
   return runningFee;
 };
 
 BitcoreWalletTransaction.prototype._hasInputSpace = function(utxo) {
   //if we add this utxo, will the total tx size (less a change address output) be greater than or equal to the maxTxSize
-  //if true, then we must NOT add this utxo to the tx
-  var ret = (this.tx.uncheckedSerialize().length + this._calculateSigSpace(utxo)) <= this.maxTxSize;
+  //if false, then we must NOT add this utxo to the tx
+  var ret = (this._getTxSize() + this._calculateSigSpace(1)) <= this.maxTxSize;
   return ret;
 };
 
-BitcoreWalletTransaction.prototype._calculateSigSpace = function(utxo) {
-  return (this.tx.inputs.length + 1) * this.signatureByteLength;
+BitcoreWalletTransaction.prototype._calculateSigSpace = function(num) {
+  return (this.tx.inputs.length + num) * this.signatureByteLength;
 };
 
 BitcoreWalletTransaction.prototype._setFee = function() {
-  this.tx.fee(this.tx.uncheckedSerialize().length * this.feeperbyte);
+  this.tx.fee(this._calculateRunningFee());
 };
 
 BitcoreWalletTransaction.prototype._getRemoteData = function(url, callback) {
@@ -304,8 +306,55 @@ BitcoreWalletTransaction.prototype._chooseLower = function(data) {
   return res;
 };
 
+BitcoreWalletTransaction.prototype._setDeferredOutputs = function() {
+  //all outputs that have a zero amount will retain
+  if (!this.deferredOutputsNeeded) {
+    return;
+  }
+
+  var outputsToPopulate = [];
+  var amountAlreadyPopulated = 0;
+  for(var i = 0; i < this.tx.outputs.length; i++) {
+    var output = this.tx.outputs[i];
+    if (output.satoshis === 0) {
+      outputsToPopulate.push(output);
+      continue;
+    }
+    amountAlreadyPopulated += output.satoshis;
+  }
+
+  if (outputsToPopulate.length < 1) {
+    return;
+  }
+
+  amountAlreadyPopulated += this.tx.getFee();
+  var amountToDivideUpBetweenZeroOutputs = this.tx.inputAmount - amountAlreadyPopulated;
+  var amountsToSet = this._getValueForZeroOutputs(amountToDivideUpBetweenZeroOutputs, outputsToPopulate.length);
+  if (!amountsToSet) {
+    throw 'Attempting to set outputs with amounts that are too small to send to the network.';
+  }
+
+  for(var j = 0; j < outputsToPopulate.length; j++) {
+    if (j === 0) {
+      outputsToPopulate[j].satoshis = amountsToSet[0] + amountsToSet[1];
+    } else {
+      outputsToPopulate[j].satoshis = amountsToSet[0];
+    }
+  }
+
+};
+
+BitcoreWalletTransaction.prototype._getValueForZeroOutputs = function(amount, numOutputs) {
+  var value = Math.floor(amount / numOutputs);
+  var remainder = amount % numOutputs;
+  if (value < this.bitcoinMinOutputAmount) {
+    return;
+  }
+  return [value, remainder];
+};
+
 BitcoreWalletTransaction.prototype._setChangeAddress = function() {
-  if (this._changeAddressIndex >= 0) {
+  if (this._changeAddressIndex >= 0 && !this.deferredOutputsNeeded) {
     this.tx.change(this._addresses[this._changeAddressIndex].address);
   }
 };
@@ -340,9 +389,18 @@ BitcoreWalletTransaction.prototype._getOutputAmounts = function() {
 };
 
 BitcoreWalletTransaction.prototype._checkAmounts = function() {
-  if (this.tx.outputAmount > (this.tx.inputAmount + this.tx.getFee())) {
-    //throw 'Inputs, fees and outputs did not balance during final check.';
+  if ((this.tx.outputAmount + this.tx.getFee()) > this.tx.inputAmount) {
+    var errStr = 'Inputs, fees and outputs did not balance during final check. This could be because we could not add enough inputs due to limitations of max size or max satoshis.\n\nMax Satoshis: ' + this.maxSatoshis + '\nMax Size: ' + this.maxTxSize + '\nOutput Amt: ' + this.tx.outputAmount + '\nInput Amt: ' + this.tx.inputAmount + '\nFee Amt: ' + this.tx.getFee() + '\nTotal Input Amt Needed: ' + (this.tx.outputAmount + this.tx.getFee()) + '\nTotal Input Amt Supplied: ' + this.tx.inputAmount;
+    throw errStr;
   }
+};
+
+BitcoreWalletTransaction.prototype._printAmountsForEachOutput = function() {
+  var str = '';
+  for(var i = 0; i < this.tx.outputs.length; i++) {
+    str += 'Output ' + i + ' (' + this.tx.outputs[i].script.toAddress().toString() + '): ' + this._convertSatToBTC(this.tx.outputs[i].satoshis) + ' BTC\n';
+  }
+  return str;
 };
 
 BitcoreWalletTransaction.prototype._createTransaction = function() {
@@ -350,11 +408,15 @@ BitcoreWalletTransaction.prototype._createTransaction = function() {
 };
 
 BitcoreWalletTransaction.prototype._convertBTCToSat = function(btc) {
-  return Math.ceil(btc * 1E8);
+  return Math.round(btc * 1E8);
 };
 
 BitcoreWalletTransaction.prototype._convertSatToBTC = function(sats) {
   return (sats / 1E8).toFixed(8);
+};
+
+BitcoreWalletTransaction.prototype._getTxSize = function() {
+  return this.tx.toBuffer().length;
 };
 
 BitcoreWalletTransaction.prototype._generateStats = function() {
@@ -363,12 +425,13 @@ BitcoreWalletTransaction.prototype._generateStats = function() {
   stats += 'Total BTC sent: ' + this._convertSatToBTC(this.tx.inputAmount) + '\n';
   stats += 'Number of output addresses: ' + this.tx.outputs.length + '\n';
   stats += 'BTC amount sent to non-change address(es): ' + this._convertSatToBTC(outputAmounts.nonChangeAmount) + '\n';
+  stats += 'BTC amount sent to each non-change address:\n' + this._printAmountsForEachOutput();
   stats += 'BTC amount sent to change address: ' + this._convertSatToBTC(outputAmounts.changeAmount) + '\n';
   stats += 'Number of inputs used: ' + this.tx.inputs.length + '\n';
   stats += 'Total fees in BTC: ' + this._convertSatToBTC(this.tx.getFee()) + '\n';
   stats += 'Total fees in USD: $' + this.feeInUSD + '\n';
-  stats += 'Total size in bytes: ' + this.tx.uncheckedSerialize().length + '\n';
-  stats += 'Fee as satoshis per byte: ' + Math.ceil(this.tx.getFee() / this.tx.uncheckedSerialize().length) + '\n';
+  stats += 'Total size in bytes: ' + this._getTxSize() + '\n';
+  stats += 'Fee as satoshis per byte: ' + Math.ceil(this.tx.getFee() / (this._getTxSize() + this._calculateSigSpace(0))) + '\n';
   return stats;
 };
 
@@ -411,6 +474,8 @@ BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
     self._addInputs();
     //set fee
     self._setFee();
+    //set outputs that weren't passed in explicitly
+    self._setDeferredOutputs();
     //set change address output
     self._setChangeAddress();
     //check amounts
