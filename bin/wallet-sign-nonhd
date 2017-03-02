@@ -7,6 +7,7 @@ var async = require('async');
 var utils = require('../util/crypto-functions.js');
 var bitcore = require('bitcore-lib');
 var Transaction = bitcore.Transaction;
+var _ = require('lodash');
 
 program
   .option('-f, --walletfile <walletfile>', 'Wallet file to refer to for private keys. Default: ~/.wallet.json')
@@ -29,6 +30,7 @@ var extraFields = ['network', 'salt', 'derivationMethod', 'rounds', 'masterKeyCt
 
 function readInputFiles(file1, file2) {
   return [file1, file2].map(function(file) {
+console.log(file);
     return require(file);
   });
 }
@@ -81,7 +83,8 @@ function decryptMasterKey(walletMap, callback) {
       passphrase: passphrase,
       salt: walletMap.salt,
       derivationOptions: {
-        rounds: walletMap.rounds
+        rounds: walletMap.rounds,
+        method: 0
       }
     }, function(err, hashedPassphrase) {
       if(err) {
@@ -120,11 +123,11 @@ function decryptPrivateKeys(keys, walletMap, callback) {
   });
 }
 
-function readPrivateKeys(tx, keys) {
+function readPrivateKeys(tx, walletMap) {
   var addresses = tx.inputs.map(function(input) {
     return input.script.toAddress();
   });
-  return _.intersect([Object.keys(walletMap), addresses]);
+  return _.intersection([Object.keys(walletMap), addresses]);
 }
 
 function signTx(decryptedPks, tx, callback) {
@@ -147,18 +150,26 @@ function writeOutputFile(file, data, callback) {
 
 var inputs = readInputFiles(inputFile, walletFile);
 var tx = createTx(inputs[0]);
-console.log(tx);
 var walletMap = createWalletMap(inputs[1]);
-var pks = readPrivateKeys(inputs);
-decryptPrivateKeysForTx(pks, walletMap, function(err, decryptedPks) {
+var pks = readPrivateKeys(tx, walletMap);
+
+decryptMasterKey(walletMap, function(err, plainTextMasterKey) {
+
   if(err) {
-    return callback(err);
+    throw err;
   }
-  var signed_tx = signTx(decryptedPks);
-  writeOutputFile(tx.checkSerialize(), function(err) {
+
+  decryptPrivateKeys(pks, walletMap, function(err, decryptedPks) {
     if(err) {
-      throw err;
+      return callback(err);
     }
-    console.log('done');
+    var signed_tx = signTx(decryptedPks);
+    writeOutputFile(tx.checkSerialize(), function(err) {
+      if(err) {
+        throw err;
+      }
+      console.log('done');
+    });
   });
+
 });

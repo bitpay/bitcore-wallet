@@ -18,7 +18,7 @@ exports.sha512KDF = function(passphrase, salt, derivationOptions, callback) {
   var rounds =  derivationOptions.rounds || 1;
   //if salt was sent in as a string, we will have to assume the default encoding type
   if (!Buffer.isBuffer(salt)) {
-    salt = new Buffer(salt, 'utf-8');
+    salt = new Buffer(salt, 'hex');
   }
   var derivation = Buffer.concat([new Buffer(''), new Buffer(passphrase), salt]);
   for(var i = 0; i < rounds; i++) {
