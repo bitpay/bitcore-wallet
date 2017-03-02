@@ -8,41 +8,76 @@ var EventEmitter = require('events').EventEmitter;
 program
   .option('-t, --testnet', 'testnet/regtest network')
   .option('-f, --file <wallet.dat file>', 'import from wallet.dat file')
-  .usage('[options] <new wallet file name> e.g. wallet-import-berkeley -f ~/.bitcoin/wallet.dat wallet.json')
+  .usage('[options] e.g. wallet-import-berkeley -f ~/.bitcoin/wallet.dat wallet.json\nIf no output file name given, then output is sent to stdout in JSONL format.')
   .parse(process.argv);
 
 var args = program.args;
 
+var outputFile = args[0];
+var template = {
+  walletId: null,
+  masterKey: null,
+  network: null,
+  keys: []
+};
+
 if (!args[0]) {
-  program.help();
+  outputFile = process.stdout;
 } else if (fs.existsSync(args[0])) {
   console.error('Output file: "' + args[0] + '" already exists, not over-writing, aborting.');
   process.exit(-1);
 }
 
+function processOutput(json) {
+  if (outputFile === process.stdout) {
+    return outputFile.write(json + '\n');
+  }
+  var value = JSON.parse(json);
+  if (value.pubKey) {
+    return template.keys.push(value);
+  }
+  template.masterKey = value;
+}
+
+function closeOut(callback) {
+  if (outputFile === process.stdout) {
+    outputFile.write(setNetwork() + '\n');
+    outputFile.write('\04'); //we will always send a proper EOF char when the stream is complete
+    return setImmediate(callback);
+  }
+  callback(template);
+}
+
 function exportWallet(callback) {
-  var results = '';
   var emitter = new EventEmitter();
   exporter.stream({
     filePath: program.file,
     emitter: emitter
   });
 
-  emitter.on('data', function(value) {
-    results += value + ',\n';
-  });
+  emitter.on('data', processOutput);
 
   emitter.on('close', function() {
-    callback(results);
+    closeOut(callback);
   });
 
   exporter.start();
 }
 
+function setNetwork(data) {
+  var network = program.testnet ? 'testnet' : 'livenet';
+  if (data) {
+    data.network = network;
+    return data;
+  }
+  return JSON.stringify({ network: network });
+}
 
 exportWallet(function(result) {
-  var outputFile;
-  fs.open(args[0], 'wx', function(err, fd) {
+  if (!result) {
+    return;
+  }
+  fs.open(outputFile, 'wx', function(err, fd) {
     if (err) {
       if (err.code === "EEXIST") {
         console.error(args[0] + ' exists, not over-writing.');
@@ -52,8 +87,8 @@ exportWallet(function(result) {
       }
     }
 
-    result += JSON.stringify({network: (program.testnet ? 'testnet' : 'livenet')});
-    fs.write(fd, result, function(err) {
+    result = setNetwork(result);
+    fs.write(fd, JSON.stringify(result, null, 2), function(err) {
       if(err) {
         throw err;
       }

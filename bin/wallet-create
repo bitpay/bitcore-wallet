@@ -8,12 +8,19 @@ program = utils.configureCommander(program);
 program
   .option('-t, --testnet', 'Create a Testnet Wallet')
   .option('-p, --password', 'Encrypt wallet. Will ask password interactively')
+  .option('-f, --file <file>', 'Wallet file to be created, overriding the default creation file name (~/.wallet.dat)')
   .usage('[options] <walletName> <m-n> [copayerName] <passphrase>')
   .parse(process.argv);
 
 var args = program.args;
-if (!args[0])
+/*
+   For all wallet types, we will always create a HD key pair. The extended private key will be encrypted with a passphrase.
+   The extended public key will be hashed and used as the walletId. Optionally there can be a wallet name as well.
+*/
+
+if (!args[0]) {
   program.help();
+}
 
 var walletName = args[0];
 var copayerName = args[2] || process.env.USER;

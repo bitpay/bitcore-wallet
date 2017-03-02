@@ -30,7 +30,6 @@ var extraFields = ['network', 'salt', 'derivationMethod', 'rounds', 'masterKeyCt
 
 function readInputFiles(file1, file2) {
   return [file1, file2].map(function(file) {
-console.log(file);
     return require(file);
   });
 }
@@ -78,7 +77,7 @@ function createTx(txData) {
 }
 
 function decryptMasterKey(walletMap, callback) {
-  utils.getPassphrase(function(passphrase) {
+  utils.getPassphrase(function(err, passphrase) {
     utils.decryptSecret({
       passphrase: passphrase,
       salt: walletMap.salt,
