@@ -1,0 +1,46 @@
+#!/usr/bin/env node
+var program = require('commander');
+var https = require('https');
+
+program
+  .option('-t, --testnet', 'testnet/regtest network')
+  .option('-k, --satsperkb', 'Provide output in satoshis/kB (1000 bytes) instead of satoshis/byte.')
+  .option('-b, --confirmationblocks <confirmationblocks>', 'Provide an explicit number of confirmation blocks, e.g. 2,3,4,5,6')
+  .option('-u, --url <url>', 'Provide an explicit url in which query for fee estimation.')
+  .usage('[options] e.g. estimate-fee\nEstimate fee in satoshis/byte or satoshis/kB (1000 bytes).')
+  .parse(process.argv);
+
+var args = program.args;
+var multiple = program.satsperkb ? 1000 : 1;
+var blockStr = program.confirmationblocks || '2,3,4';
+var url = program.url || 'https://insight.bitpay.com/api/utils/estimateFee';
+
+
+function getFeeEstimate(url, callback) {
+  var self = this;
+  var data = '';
+  var req = https.request(url + "?nbBlocks=" + blockStr, function(res) {
+    var error;
+    res.on('data', function(chunk) {
+      data += chunk;
+    });
+    res.on('error', function(err) {
+      error = err;
+    });
+    res.on('end', function() {
+      if (error) {
+        return callback(err);
+      }
+      callback(null, data);
+    });
+  });
+  req.write('');
+  req.end();
+}
+
+getFeeEstimate(url, function(err, fee) {
+  if(err) {
+    throw err;
+  }
+  process.stdout.write(fee);
+});
