@@ -3,7 +3,9 @@
 /*
 input file format:
 { utxos: [ { txid: <txid>, vout: <int>, <amount | satoshis>: <int>, scriptPubKey: <hex> }, ... ],
-  addresses: [ { address: <address>, <amount | satoshis>: <OPTIONAL int>, changeAddress: <bool> }, ... ] }
+addresses: [ { address: <address>, <amount | satoshis>: <OPTIONAL int>, changeAddress: <bool> }, ... ],
+fee: <int>
+}
 */
 var program = require('commander');
 var bitcore = require('bitcore-lib');
@@ -19,7 +21,6 @@ var inputFileFormat = '{ utxos: [ { txid: <txid>, vout: <int>, satoshis: <int>, 
 program
   .option('-s, --maxtxsize <maxtxsize>', 'Maximum Transaction Size in bytes, default 100 kB (100,000 bytes)')
   .option('-a, --maxamount <maxamount>', 'Maximum BTC Amount, default 50 BTC')
-  .option('-f, --feeperbyte <feeperbyte>', 'Specify a fee per byte')
   .option('-p, --priority <priority>', 'Generally equates how quickly this transaction could be confirmed. 1-3, with 1 being the highest priority')
   .usage('<input file> <tx output file or stdout>, e.g. wallet-create-transaction input.json tx.hex\n\nInput file format ' +
   inputFileFormat + '\n\n\n' + fs.readFileSync(__dirname + '/../TransactionRules.txt'))
@@ -32,13 +33,16 @@ var BitcoreWalletTransaction = function(options) {
   this.inputFile = path.resolve(__dirname, '../' + this.args[0]);
   this.outputFile = this.args[1];
   this.maxTxSize = this.program.maxtxsize || 1E5;
-  this.feeperbyte = this.program.feeperbyte;
   this.signatureByteLength = 72; //this is worst case size, actual size could be -2 byte
   this.priority = this.program.priority;
-  this._21FeesUrl = 'https://bitcoinfees.21.co/api/v1/fees/recommended';
-  this.insightFeesUrl = 'https://insight.bitpay.com/api/utils/estimateFee?nbBlocks=2,3,4';
   this.outputAmount = 0;
   this.bitcoinMinOutputAmount = 4000; //the real value is 1000 sats, but x4 for a more sane value minimum
+};
+
+BitcoreWalletTransaction.prototype._checkProvidedFeeRate = function() {
+  if (!this.feeperbyte && this.feeperbyte !== 0) {
+    throw 'Fee rate was not passed in.';
+  }
 };
 
 BitcoreWalletTransaction.prototype._setUtxoAmounts = function() {
@@ -93,6 +97,7 @@ BitcoreWalletTransaction.prototype._setInputInformation = function() {
   var inputInfo = require(this.inputFile);
   this._addresses = inputInfo.addresses;
   this.utxos = inputInfo.utxos;
+  this.feeperbyte = inputInfo.fee;
 };
 
 BitcoreWalletTransaction.prototype._performSanityChecks = function() {
@@ -263,49 +268,6 @@ BitcoreWalletTransaction.prototype._getRemoteData = function(url, callback) {
   req.end();
 };
 
-BitcoreWalletTransaction.prototype._getFeePerByte = function(callback) {
-  var self = this;
-  if (self.feeperbyte >= 0) {
-    return setImmediate(function() {
-      callback(null, self.feeperbyte);
-    });
-  }
-  async.map([this._21FeesUrl, this.insightFeesUrl], function(url, next) {
-    self._getRemoteData(url, next);
-  }, function(err, res) {
-    if (!res[0] && !res[1]) {
-      return callback(err);
-    }
-    self._selectBestFee(res, callback);
-  });
-};
-
-BitcoreWalletTransaction.prototype._selectBestFee = function(data, callback) {
-  var lower = this._chooseLower(data);
-  if (this.priority > 0) {
-    if (lower[this.priority-1] >= 0) {
-      return callback(null, lower[this.priority-1]);
-    }
-  }
-  //we shall take the middle path here
-  callback(null, lower[1]);
-};
-
-BitcoreWalletTransaction.prototype._chooseLower = function(data) {
-  var res = [];
-  var keys = Object.keys(data[0]);
-  for(var i = 0; i < keys.length; i++) {
-    var insightSatPerByte = Math.ceil(this._convertBTCToSat(data[1][(i+2).toString()]) / 1000);
-    var _21SatPerByte = data[0][keys[i]];
-    if (_21SatPerByte < insightSatPerByte) {
-      res.push(_21SatPerByte);
-    } else {
-      res.push(insightSatPerByte);
-    }
-  }
-  return res;
-};
-
 BitcoreWalletTransaction.prototype._setDeferredOutputs = function() {
   //all outputs that have a zero amount will retain
   if (!this.deferredOutputsNeeded) {
@@ -449,6 +411,8 @@ BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   var self = this;
   //set output addresses, amounts and utxos
   self._setInputInformation();
+  //set provided fee amount (this util does not decide what fees to add, user must pass in
+  self._checkProvidedFeeRate();
   //set the max output amount
   self._setOutputAmounts();
   //deal with utxos that have an amount field in btc
@@ -457,40 +421,32 @@ BitcoreWalletTransaction.prototype.createTransaction = function(callback) {
   self._filterUtxos();
   //perform sanity checks on the inputs/outputs
   self._performSanityChecks();
-  //get fee rate
-  self._getFeePerByte(function(err, feeRate) {
+  //sort utcos, high amt to low
+  self._sortUtxos();
+  //create empty tx
+  self._createTransaction();
+  //add outputs
+  self._addOutputs();
+  //add inputs
+  self._addInputs();
+  //set fee
+  self._setFee();
+  //set outputs that weren't passed in explicitly
+  self._setDeferredOutputs();
+  //set change address output
+  self._setChangeAddress();
+  //check amounts
+  self._checkAmounts(); //throws
+  //write tx
+  self._writeOutputFile(function(err) {
     if(err) {
-      //try other ways of getting the fee?
-      throw err;
+      return callback(err);
     }
-    self.feeperbyte = feeRate;
-    //sort utcos, high amt to low
-    self._sortUtxos();
-    //create empty tx
-    self._createTransaction();
-    //add outputs
-    self._addOutputs();
-    //add inputs
-    self._addInputs();
-    //set fee
-    self._setFee();
-    //set outputs that weren't passed in explicitly
-    self._setDeferredOutputs();
-    //set change address output
-    self._setChangeAddress();
-    //check amounts
-    self._checkAmounts(); //throws
-    //write tx
-    self._writeOutputFile(function(err) {
+    self._getExchangeRate(function(err) {
       if(err) {
         return callback(err);
       }
-      self._getExchangeRate(function(err) {
-        if(err) {
-          return callback(err);
-        }
-        callback(null, self._generateStats());
-      });
+      callback(null, self._generateStats());
     });
   });
 };
