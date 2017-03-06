@@ -128,7 +128,7 @@ BitcoreWalletTransaction.prototype._sufficientInputs = function() {
 };
 
 BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
-  var data = JSON.stringify({ tx: this.tx.uncheckedSerialize() });
+  var data = JSON.stringify({ rawtx: this.tx.uncheckedSerialize() });
   if (this.outputFile) {
     fs.open(this.outputFile, 'wx', function(err, fd) {
       if (err) {

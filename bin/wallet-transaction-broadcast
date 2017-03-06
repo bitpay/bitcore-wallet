@@ -1,0 +1,74 @@
+#!/usr/bin/env node
+
+var program = require('commander');
+var fs = require('fs');
+var url = require('url');
+
+program
+  .option('-t, --testnet', 'testnet/regtest network')
+  .option('-u, --url <url>', 'Provide an explicit url in which query for fee estimation. Must be https.')
+  .usage('[options] e.g. wallet-transaction-broadcast <transction>')
+  .parse(process.argv);
+
+var args = program.args;
+var urlStr = program.url || 'https://insight.bitpay.com/api/tx/send';
+var inputJson;
+
+function checkInput() {
+  if (!args[0] || !fs.existsSync(args[0])) {
+    throw 'input file missing.';
+  }
+  try {
+    inputJson = require(args[0]);
+  } catch (e) {
+    throw 'failed to parse file: ' + args[0] + '...' + e;
+  }
+  //TODO: this value could be quite large, does it need to be split up?
+  //I think the default limit is 100kb, according to body-parser source code.
+  if (inputJson.rawtx.length > (1E5 * 2)) {
+    throw 'tx size too large to broadcast, limit, at the moment, is 100,000 bytes';
+  }
+}
+
+function broadcastTx(tx, callback) {
+  var self = this;
+  var data = '';
+  var post = url.parse(urlStr);
+  post.headers = "Content-Type: application/json";
+  post.method = 'POST';
+  post.path = '/tx/send';
+  post.body = inputJson;
+
+  var req = https.request(post, function(res) {
+    var error;
+    res.on('data', function(chunk) {
+      data += chunk;
+    });
+    res.on('error', function(err) {
+      error = err;
+    });
+    res.on('end', function() {
+      if (error) {
+        return callback(err);
+      }
+      var parsedObj;
+      try {
+        parsedObj = JSON.parse(data);
+      } catch(e) {
+        return callback(e);
+      }
+      callback(null, parsedObj);
+    });
+  });
+  req.write('');
+  req.end();
+}
+
+checkInput();
+
+broadcastTx(tx, function(err, res) {
+  if(err) {
+   throw err;
+  }
+  process.stdout.write(JSON.stringify(res));
+});

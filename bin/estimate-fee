@@ -6,7 +6,7 @@ program
   .option('-t, --testnet', 'testnet/regtest network')
   .option('-k, --satsperkb', 'Provide output in satoshis/kB (1000 bytes) instead of satoshis/byte.')
   .option('-u, --url <url>', 'Provide an explicit url in which query for fee estimation. Must be https.')
-  .usage('[options] e.g. estimate-fee\nEstimate fee in satoshis/byte or satoshis/kB (1000 bytes).')
+  .usage('[options] e.g. estimate-fee 2 \nEstimate fee in satoshis/byte or satoshis/kB (1000 bytes).')
   .parse(process.argv);
 
 var args = program.args;
