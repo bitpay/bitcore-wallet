@@ -30,7 +30,7 @@ var BitcoreWalletTransaction = function(options) {
   this.program = options.program;
   this.args = this.program.args;
   this._processArgs();
-  this.inputFile = path.resolve(__dirname, '../' + this.args[0]);
+  this._findInputFile();
   this.outputFile = this.args[1];
   this.maxTxSize = this.program.maxtxsize || 1E5;
   this.signatureByteLength = 72; //this is worst case size, actual size could be -2 byte
@@ -39,9 +39,18 @@ var BitcoreWalletTransaction = function(options) {
   this.bitcoinMinOutputAmount = 4000; //the real value is 1000 sats, but x4 for a more sane value minimum
 };
 
+BitcoreWalletTransaction.prototype._findInputFile = function() {
+  this.inputFile = this.args[0] || process.stdin;
+  if (this.inputFile !== process.stdin || this.inputFile.slice(0,1) === '/') {
+    return;
+  }
+  this.inputFile = path.resolve(__dirname, '../' + this.args[0]);
+};
+
 BitcoreWalletTransaction.prototype._checkProvidedFeeRate = function() {
   if (!this.feeperbyte && this.feeperbyte !== 0) {
-    throw 'Fee rate was not passed in.';
+    console.error('Fee rate was not passed in.');
+    process.exit(1);
   }
 };
 
@@ -84,20 +93,27 @@ BitcoreWalletTransaction.prototype._setOutputAmounts = function() {
 };
 
 BitcoreWalletTransaction.prototype._processArgs = function() {
-  if (!this.args[0]) {
-    this.program.help();
-  } else if (this.args[1] && fs.existsSync(this.args[1])) {
+  if (this.args[1] && fs.existsSync(this.args[1])) {
     console.error('Output file: "' + this.args[1] + '" already exists, not over-writing, aborting.');
     process.exit(-1);
   }
 };
 
 BitcoreWalletTransaction.prototype._setInputInformation = function() {
-  //letting this throw if needed
-  var inputInfo = require(this.inputFile);
-  this._addresses = inputInfo.addresses;
-  this.utxos = inputInfo.utxos;
-  this.feeperbyte = inputInfo.fee;
+  if (this.inputFile === process.stdin) {
+    return;
+  }
+  var inFile = fs.readFileSync(this.inputFile);
+  var inJson;
+  try {
+    inJson = JSON.parse(inFile);
+  } catch (e) {
+    console.error('Unable to parse input file.');
+    process.exit(1);
+  }
+  this._addresses = inJson.addresses;
+  this.utxos = inJson.utxos;
+  this.feeperbyte = inJson.fee;
 };
 
 BitcoreWalletTransaction.prototype._performSanityChecks = function() {
@@ -353,7 +369,7 @@ BitcoreWalletTransaction.prototype._getOutputAmounts = function() {
 BitcoreWalletTransaction.prototype._checkAmounts = function() {
   if ((this.tx.outputAmount + this.tx.getFee()) > this.tx.inputAmount) {
     var errStr = 'Inputs, fees and outputs did not balance during final check. This could be because we could not add enough inputs due to limitations of max size or max satoshis.\n\nMax Satoshis: ' + this.maxSatoshis + '\nMax Size: ' + this.maxTxSize + '\nOutput Amt: ' + this.tx.outputAmount + '\nInput Amt: ' + this.tx.inputAmount + '\nFee Amt: ' + this.tx.getFee() + '\nTotal Input Amt Needed: ' + (this.tx.outputAmount + this.tx.getFee()) + '\nTotal Input Amt Supplied: ' + this.tx.inputAmount;
-    throw errStr;
+    throw new Error(errStr);
   }
 };
 

@@ -35,3 +35,5 @@ db/*
 .bit
 # test files
 test/testdata/tmp/*
+*.json
+*.dat

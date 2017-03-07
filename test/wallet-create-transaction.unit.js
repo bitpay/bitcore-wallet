@@ -11,8 +11,8 @@ var fs = require('fs');
 
 describe('BitcoreWalletTransaction', function() {
   var testDirPath = path.resolve(__dirname, './testdata');
-
   var tx;
+
   beforeEach(function(done) {
     initTestData(function(err) {
       if(err) {
@@ -64,6 +64,12 @@ describe('BitcoreWalletTransaction', function() {
 
   it('should add outputs', function() {
     tx._setInputInformation();
+    tx._checkProvidedFeeRate();
+    tx._setOutputAmounts();
+    tx._setUtxoAmounts();
+    tx._filterUtxos();
+    tx._performSanityChecks();
+    tx._sortUtxos();
     tx._createTransaction();
     tx._addOutputs();
     tx.tx.outputs.length.should.equal(2);
@@ -71,7 +77,14 @@ describe('BitcoreWalletTransaction', function() {
 
   it('should add inputs', function() {
     tx._setInputInformation();
+    tx._checkProvidedFeeRate();
+    tx._setOutputAmounts();
+    tx._setUtxoAmounts();
+    tx._filterUtxos();
+    tx._performSanityChecks();
+    tx._sortUtxos();
     tx._createTransaction();
+    tx._addOutputs();
     tx._addInputs();
     tx.tx.inputs.length.should.equal(1);
   });
@@ -97,14 +110,14 @@ describe('BitcoreWalletTransaction', function() {
     tx._createTransaction();
     var utxo = tx.utxos[0];
     tx.maxSatoshis = 0;
-    tx._hasInputAmount(utxo).should.be.false;
+    tx._hasSurpassedMaxSatoshis(utxo).should.be.true;
   });
 
   it('should add more inputs if max satoshis has not been exceeded', function() {
     tx._setInputInformation();
     tx._createTransaction();
     var utxo = tx.utxos[0];
-    tx._hasInputAmount(utxo).should.be.true;
+    tx._hasSurpassedMaxSatoshis(utxo).should.be.false;
   });
 
   it('should not process any utxo that is not pay-to-public-key-hash', function() {
@@ -121,51 +134,39 @@ describe('BitcoreWalletTransaction', function() {
     tx._isP2PKH(utxo).should.be.true;
   });
 
-  it('should set a fee on the transaction', function(done) {
+  it('should check amounts', function() {
     tx._setInputInformation();
+    tx._checkProvidedFeeRate();
+    tx._setOutputAmounts();
+    tx._setUtxoAmounts();
+    tx._filterUtxos();
+    tx._performSanityChecks();
+    tx._sortUtxos();
     tx._createTransaction();
     tx._addOutputs();
     tx._addInputs();
-    tx._setFee(function(err) {
-      if(err) {
-        return done(err);
-      }
-      tx.tx.getFee().should.be.equal(47600);
-      done();
-    });
-  });
-
-  it('should check amounts', function(done) {
-    tx._setInputInformation();
-    tx._createTransaction();
-    tx._addOutputs();
-    tx._addInputs();
-    tx._setFee(function(err) {
-      if(err) {
-        return done(err);
-      }
-      expect(tx._checkAmounts.bind(tx)).to.not.throw(Error);
-      done();
-    });
-  });
-
-  it('should check amounts and error', function(done) {
-    tx._setInputInformation();
-    tx._createTransaction();
-    tx._addresses[0].satoshis = tx._addresses[0].satoshis + 1000;
-    tx._addOutputs();
-    tx._addInputs();
-    tx._setFee(function(err) {
-      if(err) {
-        return done(err);
-      }
-      expect(tx._checkAmounts.bind(tx)).to.throw('Output amounts exceed input amounts.');
-      done();
-    });
+    tx._setFee();
+    tx._setDeferredOutputs();
+    tx._setChangeAddress();
+    tx._checkAmounts();
   });
 
   it('should write unchecked serialized tx to a file', function(done) {
+    tx._setInputInformation();
+    tx._checkProvidedFeeRate();
+    tx._setOutputAmounts();
+    tx._setUtxoAmounts();
+    tx._filterUtxos();
+    tx._performSanityChecks();
+    tx._sortUtxos();
     tx._createTransaction();
+    tx._addOutputs();
+    tx._addInputs();
+    tx._setFee();
+    tx._setDeferredOutputs();
+    tx._setChangeAddress();
+    tx._createTransaction();
+    tx._checkAmounts();
     tx._writeOutputFile(function(err) {
       if(err) {
         return done(err);
@@ -174,24 +175,28 @@ describe('BitcoreWalletTransaction', function() {
         if(err) {
           return done(err);
         }
-        data.toString('hex').should.equal('7b227478223a223031303030303030303030303030303030303030227d');
+        data.toString('hex').should.equal('7b227261777478223a223031303030303030303030303030303030303030227d');
         done();
       });
     });
   });
 
-  it('should generate stats', function(done) {
+  it('should check amounts and error', function() {
     tx._setInputInformation();
+    tx._checkProvidedFeeRate();
+    tx._setOutputAmounts();
+    tx._setUtxoAmounts();
+    tx._filterUtxos();
+    tx._performSanityChecks();
+    tx._sortUtxos();
     tx._createTransaction();
+    tx._addresses[0].satoshis = tx._addresses[0].satoshis + (50 * 1E8);
     tx._addOutputs();
     tx._addInputs();
-    tx._setFee(function(err) {
-      if(err) {
-        return done(err);
-      }
-      tx._generateStats().should.equal('Total BTC sent: 14.00033320\nNumber of output addresses: 2\nTotal fees in satoshis: 47600\nTotal size in bytes: 238\nSatoshis per byte: 200\n');
-      done();
-    });
+    tx._setFee();
+    tx._setDeferredOutputs();
+    tx._setChangeAddress();
+    expect(tx._checkAmounts).to.throw(Error);
   });
 
 });

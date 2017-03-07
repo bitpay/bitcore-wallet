@@ -4,7 +4,7 @@
       "txid": "bd565e3741d0ed658d06908acb0ac807ed1ead28f23628f0ac9bef77e65729b9",
       "vout": 0,
       "scriptPubKey": "76a9142d9f95d396ec0c10303bc04010c11ff23d9368d488ac",
-      "satoshis": 1400033320
+      "satoshis": 1500000000
     }
   ],
   "addresses": [
@@ -16,5 +16,6 @@
       "address": "18cBEMRxXHqzWWCxZNtU91F5sbUNKhL5PX",
       "satoshis": 700000000
     }
-  ]
+  ],
+  "fee": 200
 }

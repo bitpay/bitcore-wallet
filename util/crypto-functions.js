@@ -32,15 +32,12 @@ exports.decryptPrivateKey = function(opts, callback) {
     if(err) {
       return callback(err);
     }
+
     opts.cipherText = opts.pkCipherText;
     opts.key = masterKey;
     opts.iv = bitcore.crypto.Hash.sha256sha256(new Buffer(opts.pubkey, 'hex'));
-    exports.decrypt(opts, function(err, privateKey) {
-      if(err) {
-        return callback(err);
-      }
-      callback(null, privateKey);
-    });
+    callback(null, exports.decrypt(opts));
+
   });
 };
 
@@ -50,30 +47,29 @@ exports.decryptSecret = function(opts, callback) {
       return callback(err);
     }
     opts.key = hashedPassphrase;
-    exports.decrypt(opts, callback);
+    callback(null, exports.decrypt(opts));
   });
 };
 
-exports.decrypt = function(opts, callback) {
+exports.decrypt = function(opts) {
+
   if (!Buffer.isBuffer(opts.key)) {
     opts.key = new Buffer(opts.key, 'hex');
   }
+
   var secondHalf;
+
   if (opts.iv) {
     secondHalf = opts.iv.slice(0, 16);
   } else {
     secondHalf = opts.key.slice(32, 48); //AES256-cbc IV
   }
+
   var cipherText = new Buffer(opts.cipherText, 'hex');
   var firstHalf = opts.key.slice(0, 32); //AES256-cbc shared key
   var AESDecipher = crypto.createDecipheriv('aes-256-cbc', firstHalf, secondHalf);
-  var plainText;
-  try {
-    plainText = Buffer.concat([AESDecipher.update(cipherText), AESDecipher.final()]).toString('hex');
-  } catch(e) {
-    return callback(e);
-  }
-  callback(null, plainText);
+
+  return Buffer.concat([AESDecipher.update(cipherText), AESDecipher.final()]).toString('hex');
 };
 
 exports.confirm = function(question, callback) {

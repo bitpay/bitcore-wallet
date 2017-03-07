@@ -16,17 +16,24 @@ var inputJson;
 
 function checkInput() {
   if (!args[0] || !fs.existsSync(args[0])) {
-    throw 'input file missing.';
+    console.error('input file missing.');
+    process.exit(1);
   }
   try {
     inputJson = require(args[0]);
   } catch (e) {
-    throw 'failed to parse file: ' + args[0] + '...' + e;
+    console.error('failed to parse file, is it json?');
+    process.exit(1);
+  }
+  if (!inputJson.rawtx) {
+    console.error('Input keys are not correct, please provide a rawtx key/value pair.');
+    process.exit(1);
   }
   //TODO: this value could be quite large, does it need to be split up?
   //I think the default limit is 100kb, according to body-parser source code.
   if (inputJson.rawtx.length > (1E5 * 2)) {
-    throw 'tx size too large to broadcast, limit, at the moment, is 100,000 bytes';
+    console.error('tx size too large to broadcast, limit, at the moment, is 100,000 bytes');
+    process.exit(1);
   }
 }
 
