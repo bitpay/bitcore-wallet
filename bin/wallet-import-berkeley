@@ -18,9 +18,10 @@ var outputFile = args[0];
 var template = {
   walletId: null,
   masterKey: null,
-  network: null,
   keys: []
 };
+
+var network = setNetwork();
 
 if (!args[0]) {
   outputFile = process.stdout;
@@ -30,15 +31,16 @@ if (!args[0]) {
 }
 
 function processOutput(json) {
-  if (outputFile === process.stdout) {
-    return outputFile.write(json + '\n');
-  }
   var value = JSON.parse(json);
   if (value.pubKey) {
-    value.address = PublicKey.fromString(value.pubKey, 'hex').toAddress().toString();
-    return template.keys.push(value);
+    value.address = PublicKey.fromString(value.pubKey, 'hex').toAddress(network).toString();
+    template.keys.push(value);
+  } else {
+    template.masterKey = value;
   }
-  template.masterKey = value;
+  if (outputFile === process.stdout) {
+    return outputFile.write(JSON.stringify(value) + '\n');
+  }
 }
 
 function closeOut(callback) {
@@ -66,13 +68,8 @@ function exportWallet(callback) {
   exporter.start();
 }
 
-function setNetwork(data) {
-  var network = program.testnet ? 'testnet' : 'livenet';
-  if (data) {
-    data.network = network;
-    return data;
-  }
-  return JSON.stringify({ network: network });
+function setNetwork() {
+  return program.testnet ? 'testnet' : 'livenet';
 }
 
 exportWallet(function(result) {
@@ -89,7 +86,6 @@ exportWallet(function(result) {
       }
     }
 
-    result = setNetwork(result);
     fs.write(fd, JSON.stringify(result, null, 2), function(err) {
       if(err) {
         throw err;

@@ -87,9 +87,11 @@ function decryptNecessaryPrivateKeys(masterKey, walletMap, addresses) {
     var start = process.hrtime();
     pubKeyTime += utils.diffTime(start);
 
+
     if (addresses.indexOf(key.address) === -1) {
       continue;
     }
+
 
     var start = process.hrtime();
     pks.push(new PrivateKey(utils.decrypt({
@@ -103,6 +105,14 @@ function decryptNecessaryPrivateKeys(masterKey, walletMap, addresses) {
   console.log('decrypt time: ' + decryptTime + ' secs');
 
   return pks;
+}
+
+function setNetwork(walletMap) {
+  //this uses the network of the supplied wallet and does not consider or match the unsigned tx
+  if (walletMap.keys[0].address.slice(0,1) === 'm' || walletMap.keys[0].address.slice(0,1) === 'n') {
+    return 'testnet';
+  }
+  return 'livenet';
 }
 
 function writeOutputFile(file, tx, callback) {
@@ -129,7 +139,6 @@ function writeOutputFile(file, tx, callback) {
 }
 
 var outputFile = setOutputFile(args[1]);
-
 var walletFile = program.walletfile ?
   path.resolve(__dirname, '../' + program.walletfile) :
   process.env.HOME + '/.wallet.json';
@@ -139,8 +148,8 @@ var inputs = readInputFiles(inputFile, walletFile);
 var walletMap = inputs[1];
 var txJson = inputs[0];
 var tx = new Transaction(txJson.rawtx);
-
-var inputAddresses = getInputAddresses(tx, walletMap.network);
+var network = setNetwork(walletMap);
+var inputAddresses = getInputAddresses(tx, network);
 
 decryptMasterKey(walletMap, function(err, plainTextMasterKey) {
 
