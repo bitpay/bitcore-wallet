@@ -4,6 +4,7 @@ var program = require('commander');
 var fs = require('fs');
 var exporter = require('bitcoin-wallet-node');
 var EventEmitter = require('events').EventEmitter;
+var PublicKey = require('bitcore-lib').PublicKey;
 
 program
   .option('-t, --testnet', 'testnet/regtest network')
@@ -34,6 +35,7 @@ function processOutput(json) {
   }
   var value = JSON.parse(json);
   if (value.pubKey) {
+    value.address = PublicKey.fromString(value.pubKey, 'hex').toAddress().toString();
     return template.keys.push(value);
   }
   template.masterKey = value;

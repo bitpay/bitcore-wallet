@@ -7,6 +7,9 @@ var async = require('async');
 var utils = require('../util/crypto-functions.js');
 var Hash = require('bitcore-lib').crypto.Hash;
 var Transaction = require('bitcore-lib').Transaction;
+var PublicKey = require('bitcore-lib').PublicKey;
+var PrivateKey = require('bitcore-lib').PrivateKey;
+var assert = require('assert');
 
 program
   .option('-f, --walletfile <walletfile>', 'Wallet file to refer to for private keys. Default: ~/.wallet.json')
@@ -16,15 +19,8 @@ program
 var args = program.args;
 if (!args[0]) {
   program.help();
-} else if (args[1] && fs.existsSync(args[1])) {
-  console.error('Output file: "' + args[1] + '" already exists, not over-writing, aborting.');
-  process.exit(-1);
 }
 
-var walletFile = program.walletfile ?
-  path.resolve(__dirname, '../' + program.walletfile) :
-  process.env.HOME + '/.wallet.json';
-var inputFile = path.resolve(__dirname, '../' + args[0]);
 
 function readInputFiles(file1, file2) {
   return [file1, file2].map(function(file) {
@@ -32,10 +28,18 @@ function readInputFiles(file1, file2) {
   });
 }
 
+function setOutputFile(file) {
+  if (fs.existsSync(file)) {
+    console.error('Output file: "' + file + '" already exists, not over-writing, aborting.');
+    process.exit(-1);
+  }
+  return file || process.stdout;
+}
+
 function decryptMasterKey(walletMap, callback) {
   utils.getPassphrase(function(err, passphrase) {
 
-    if (err) {
+    if(err) {
       return callback(err);
     }
 
@@ -49,29 +53,94 @@ function decryptMasterKey(walletMap, callback) {
       }
     };
 
-    utils.decryptSecret(opts, callback);
+    console.log('starting to decrypt master key...');
+    var start = process.hrtime();
+    var plainTextMasterKey = utils.decryptSecret(opts);
+    console.log(utils.diffTime(start) + ' secs');
+
+    return plainTextMasterKey ? callback(null, plainTextMasterKey) :
+      callback(new Error('Master Key could not be decrypted.'));
 
   });
 }
 
-function writeOutputFile(file, data, callback) {
-  fs.open(file, 'wx', function(err, fd) {
-    if (err) {
-      return callback(err);
+function getInputAddresses(tx, network) {
+  var addresses = [];
+  console.log('starting to gather input addresses...');
+  var start = process.hrtime();
+  for(var i = 0; i < tx.inputs.length; i++) {
+    var input = tx.inputs[i];
+    addresses.push(input.output.script.toAddress(network).toString());
+  }
+  console.log(utils.diffTime(start) + ' secs');
+  return addresses;
+}
+
+function decryptNecessaryPrivateKeys(masterKey, walletMap, addresses) {
+  var pks = [];
+
+  console.log('starting to decrypt private keys...');
+  var pubKeyTime = 0;
+  var decryptTime = 0;
+  for(var i = 0; i < walletMap.keys.length; i++) {
+    var key = walletMap.keys[i];
+    var start = process.hrtime();
+    pubKeyTime += utils.diffTime(start);
+
+    if (addresses.indexOf(key.address) === -1) {
+      continue;
     }
-    fs.write(fd, data, function(err) {
-      if(err) {
+
+    var start = process.hrtime();
+    pks.push(new PrivateKey(utils.decrypt({
+      cipherText: key.cipherText,
+      key: masterKey,
+      iv: Hash.sha256sha256(new Buffer(key.pubKey, 'hex'))
+    })));
+    decryptTime += utils.diffTime(start);
+  }
+  console.log('pubkey time: ' + pubKeyTime + ' secs');
+  console.log('decrypt time: ' + decryptTime + ' secs');
+
+  return pks;
+}
+
+function writeOutputFile(file, tx, callback) {
+  var data = JSON.stringify({ rawtx: tx.serialize({ disableLargeFees: true }) });
+  if (file !== process.stdout) {
+    fs.open(file, 'wx', function(err, fd) {
+      if (err) {
         return callback(err);
       }
+      fs.write(fd, data, function(err) {
+        if(err) {
+          return callback(err);
+        }
+        console.log('signed tx written');
+        callback();
+      });
+    });
+  } else {
+    setImmediate(function() {
+      process.stdout.write(data);
       callback();
     });
-  });
+  }
 }
 
+var outputFile = setOutputFile(args[1]);
+
+var walletFile = program.walletfile ?
+  path.resolve(__dirname, '../' + program.walletfile) :
+  process.env.HOME + '/.wallet.json';
+
+var inputFile = path.resolve(__dirname, '../' + args[0]);
 var inputs = readInputFiles(inputFile, walletFile);
 var walletMap = inputs[1];
 var txJson = inputs[0];
-var tx = new Transaction(txJson.tx);
+var tx = new Transaction(txJson.rawtx);
+
+var inputAddresses = getInputAddresses(tx, walletMap.network);
 
 decryptMasterKey(walletMap, function(err, plainTextMasterKey) {
 
@@ -79,27 +148,18 @@ decryptMasterKey(walletMap, function(err, plainTextMasterKey) {
     throw err;
   }
 
-  var decryptedPks = [];
+  var decryptedPrivateKeys = decryptNecessaryPrivateKeys(plainTextMasterKey, walletMap, inputAddresses);
 
-  for(var i = 0; i < walletMap.keys.length; i++) {
-    var key = walletMap.keys[i];
+  console.log('starting the signing operation...');
+  var start = process.hrtime();
+  var signedTx = tx.sign(decryptedPrivateKeys);
+  console.log(utils.diffTime(start) + ' secs');
+  assert(signedTx.verify(), 'Tx sign operation failed.');
 
-    decryptedPks.push(utils.decrypt({
-      cipherText: key.cipherText,
-      key: plainTextMasterKey,
-      iv: Hash.sha256sha256(new Buffer(key.pubKey), 'hex')
-    }));
-
-  }
-
-  var signedTx = tx.sign(decryptedPks);
-  console.log(signedTx.verify());
-  //writeOutputFile(tx.checkSerialize(), function(err) {
-  //  if(err) {
-  //    throw err;
-  //  }
-  //  console.log('done');
-  //});
-
+  writeOutputFile(outputFile, signedTx, function(err) {
+    if(err) {
+      throw err;
+    }
+  });
 
 });

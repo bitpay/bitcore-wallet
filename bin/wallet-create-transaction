@@ -14,6 +14,7 @@ var path = require('path');
 var fs = require('fs');
 var _ = require('lodash');
 var async = require('async');
+var Unit = bitcore.Unit;
 
 var inputFileFormat = '{ utxos: [ { txid: <txid>, vout: <int>, satoshis: <int>, scriptPubKey: <hex> }, ... ],\n' +
 'addresses: [ { address: <addresses>, satoshis: <OPTIONAL int>, changeAddress: <bool> }, ... ] }';
@@ -41,7 +42,7 @@ var BitcoreWalletTransaction = function(options) {
 
 BitcoreWalletTransaction.prototype._findInputFile = function() {
   this.inputFile = this.args[0] || process.stdin;
-  if (this.inputFile !== process.stdin || this.inputFile.slice(0,1) === '/') {
+  if (this.inputFile !== process.stdin && this.inputFile.slice(0,1) === '/') {
     return;
   }
   this.inputFile = path.resolve(__dirname, '../' + this.args[0]);
@@ -62,7 +63,7 @@ BitcoreWalletTransaction.prototype._setUtxoAmounts = function() {
 
 BitcoreWalletTransaction.prototype._filterUtxos = function() {
   var self = this;
-  this.utxos = _.filter(this.utxos, function(utxo) {
+  self.utxos = _.filter(self.utxos, function(utxo) {
     return utxo.satoshis <= self.maxSatoshis && self._isP2PKH(utxo);
   });
 };
@@ -122,6 +123,7 @@ BitcoreWalletTransaction.prototype._performSanityChecks = function() {
                !this._addresses ||
                this._addresses.length === 0 ||
                !this._sufficientInputs();
+
   if (notGood) {
     throw 'Inputs amounts cannot satify the output amounts.';
   }
@@ -136,6 +138,7 @@ BitcoreWalletTransaction.prototype._sufficientInputs = function() {
   for(var i = 0; i < this.utxos.length; i++) {
     inAmount += this.utxos[i].satoshis || 0;
   }
+
   //this is just a sanity check and won't factor in a fee
   if (inAmount > this.outputAmount) {
     return true;
@@ -144,7 +147,7 @@ BitcoreWalletTransaction.prototype._sufficientInputs = function() {
 };
 
 BitcoreWalletTransaction.prototype._writeOutputFile = function(callback) {
-  var data = JSON.stringify({ rawtx: this.tx.uncheckedSerialize() });
+  var data = JSON.stringify({ rawtx: this.tx.toJSON() });
   if (this.outputFile) {
     fs.open(this.outputFile, 'wx', function(err, fd) {
       if (err) {
@@ -176,7 +179,6 @@ BitcoreWalletTransaction.prototype._addInputs = function() {
       this._hasEnoughInputsForOutputs(this.utxos[i])) {
       continue;
     }
-
     this.tx.from(this.utxos[i]);
   }
 };
@@ -201,7 +203,7 @@ BitcoreWalletTransaction.prototype._addOutputs = function() {
 };
 
 BitcoreWalletTransaction.prototype._isP2PKH = function(utxo) {
-  var script = new bitcore.Script(utxo.scriptPubKey);
+  var script = new bitcore.Script(utxo.script);
   return script.isPublicKeyHashOut();
 };
 
@@ -386,11 +388,11 @@ BitcoreWalletTransaction.prototype._createTransaction = function() {
 };
 
 BitcoreWalletTransaction.prototype._convertBTCToSat = function(btc) {
-  return Math.round(btc * 1E8);
+  return Unit.fromBTC(btc).toSatoshis();
 };
 
 BitcoreWalletTransaction.prototype._convertSatToBTC = function(sats) {
-  return (sats / 1E8).toFixed(8);
+  return Unit.fromSatoshis(sats).toBTC();
 };
 
 BitcoreWalletTransaction.prototype._getTxSize = function() {
