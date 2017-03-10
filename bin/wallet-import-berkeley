@@ -5,6 +5,8 @@ var fs = require('fs');
 var exporter = require('bitcoin-wallet-node');
 var EventEmitter = require('events').EventEmitter;
 var PublicKey = require('bitcore-lib').PublicKey;
+var utils = require('../util/crypto-functions.js');
+var bitcore = require('bitcore-lib');
 
 program
   .option('-t, --testnet', 'testnet/regtest network')
@@ -17,6 +19,8 @@ var args = program.args;
 var outputFile = args[0];
 var template = {
   walletId: null,
+  HDPublicKey: null,
+  HDPrivateKey: null,
   masterKey: null,
   keys: []
 };
@@ -33,7 +37,8 @@ if (!args[0]) {
 function processOutput(json) {
   var value = JSON.parse(json);
   if (value.pubKey) {
-    value.address = PublicKey.fromString(value.pubKey, 'hex').toAddress(network).toString();
+    var pk = new PublicKey(value.pubKey);
+    value.address = pk.toAddress(network).toString();
     template.keys.push(value);
   } else {
     template.masterKey = value;
@@ -43,9 +48,17 @@ function processOutput(json) {
   }
 }
 
+function generateKeyPair() {
+  var privkey = new bitcore.HDPrivateKey();
+  template.HDPublicKey = privkey.xpubkey;
+  template.HDPrivateKey = privkey.toString();
+  template.walletId = bitcore.crypto.Hash.sha256sha256(new Buffer(privkey.xpubkey)).toString('hex');
+}
+
 function closeOut(callback) {
+  generateKeyPair();
   if (outputFile === process.stdout) {
-    outputFile.write(setNetwork() + '\n');
+    outputFile.write(network + '\n');
     outputFile.write('\04'); //we will always send a proper EOF char when the stream is complete
     return setImmediate(callback);
   }

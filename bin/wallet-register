@@ -22,7 +22,7 @@ program
 
 var args = program.args;
 var walletFile = program.file || process.env.HOME + '/.wallet.dat';
-var urlStr = program.url || 'https://localhost:3001/wallet-api';
+var urlStr = program.url || 'https://localhost:3001/wallet-api/wallets/';
 
 function register(callback) {
   var stream = fs.createReadStream(walletFile);
