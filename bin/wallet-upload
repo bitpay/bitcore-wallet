@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
 var program = require('commander');
+var FormData = require('form-data');
+var form = new FormData();
 var utils = require('./cli-utils');
 var http = require('http');
 var https = require('https');
 var fs = require('fs');
+var Transform = require('stream').Transform;
+var transform = new Transform({ objectMode: true });
 var url = require('url');
+var util = require('util');
 
 function isTLS(url) {
   return url.protocol === 'https:';
@@ -20,23 +25,62 @@ program
 var args = program.args;
 var walletFile = program.file || process.env.HOME + '/.wallet.dat';
 var urlStr = program.url || 'http://127.0.0.1:3001/wallet-api/wallets';
-var walletId = JSON.parse(fs.readFileSync(walletFile)).walletId;
+var walletJSON = JSON.parse(fs.readFileSync(walletFile));
+var walletId = walletJSON.walletId;
 
 if (!walletId) {
   console.error('Wallet ID not specified in the wallet file provided, aborting.');
   process.exit(1);
 }
 
-function register(walletId, callback) {
+function findAddress(line) {
+  var re = /"address":\s+"(\w+)"/;
+  var match = re.exec(line);
+  if (match) {
+    this.push('"' + match[1] + '",');
+  }
+}
+
+transform._transform = function(chunk, enc, callback) {
+  var data = chunk.toString()
+
+  if (this._last) {
+    data = this._last + data
+  }
+
+  var lines = data.split('\n');
+  this._last = lines.splice(lines.length-1,1)[0];
+
+  var self = this;
+  lines.forEach(findAddress.bind(self));
+  callback();
+};
+
+transform._flush = function (callback) {
+  if (this._last) {
+    findAddress.call(this, this._last);
+  }
+  this._last = null;
+  callback();
+}
+
+function upload(walletId, callback) {
+
+  var stream = fs.createReadStream(walletFile);
+  stream.pipe(transform);
+  form.append('addresses', transform, walletFile);
+
   var parsedUrl = url.parse(urlStr);
   var httpOptions = {
     protocol: parsedUrl.protocol,
     hostname: parsedUrl.hostname,
     port: (parsedUrl.port || (isTLS(parsedUrl) ? 443 : 80)),
     method: 'POST',
-    path: '/wallet-api/wallets/' + walletId,
-    body: ''
+    path: parsedUrl.path + '/' + walletId + '/addresses',
+    body: '',
+    headers: form.getHeaders()
   };
+
   var error;
   var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
 
@@ -45,7 +89,7 @@ function register(walletId, callback) {
         return callback(err);
       }
       if (res.statusCode < 200 || res.statusCode > 299) {
-        return callback(new Error('Response code from server was ' + res.statusCode));
+        return callback(new Error('Response code from server was ' + err));
       }
       var json;
       if (body) {
@@ -54,10 +98,10 @@ function register(walletId, callback) {
         } catch(e) {
           return callback(e);
         }
-        if (json.walletId) {
-          return callback(null, json.walletId);
+        if (json.jobId) {
+          return callback(null, json.jobId);
         }
-        return callback(new Error('Response json not as expected - no walletId given in reply: ' + body));
+        return callback(new Error('Response json not as expected - no job id given in reply: ' + body));
       }
       callback(new Error('no body in response.'));
     }
@@ -73,13 +117,17 @@ function register(walletId, callback) {
 
   });
 
-  req.write('');
-  req.end();
+  req.on('error', function(e) {
+    error = e;
+  });
+
+  form.pipe(req);
 }
 
-register(walletId, function(err, walletId) {
+upload(walletId, function(err, jobId) {
   if(err) {
-    throw err;
+    return console.error('Queue overloaded.');
   }
-  console.log('register complete. Wallet id: ' + walletId);
+  console.log('upload in-progress, Wallet id: ' + walletId + ' job id: ' + jobId);
 });
+
