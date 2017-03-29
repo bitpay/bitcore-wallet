@@ -19,8 +19,8 @@
   "dependencies": {
     "async": "^2.1.5",
     "bitcoin-wallet-node": "kleetus/bitcoin-wallet-node#master",
-    "bitcore-lib": "^0.13.19",
-    "bitcore-wallet-client": "4.4.2",
+    "bitcore-lib": "^0.14.0",
+    "bitcore-wallet-client": "",
     "commander": "^2.6.0",
     "form-data": "^2.1.2",
     "lodash": "^3.3.1",
