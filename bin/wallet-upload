@@ -24,7 +24,7 @@ program
 
 var args = program.args;
 var walletFile = program.file || process.env.HOME + '/.wallet.dat';
-var urlStr = program.url || 'http://127.0.0.1:3001/wallet-api/wallets';
+var urlStr = program.url || 'http://127.0.0.1:3001';
 var walletJSON = JSON.parse(fs.readFileSync(walletFile));
 var walletId = walletJSON.walletId;
 
@@ -76,7 +76,7 @@ function upload(walletId, callback) {
     hostname: parsedUrl.hostname,
     port: (parsedUrl.port || (isTLS(parsedUrl) ? 443 : 80)),
     method: 'POST',
-    path: parsedUrl.path + '/' + walletId + '/addresses',
+    path: '/wallet-api/wallets/' + walletId + '/addresses',
     body: '',
     headers: form.getHeaders()
   };
@@ -89,7 +89,7 @@ function upload(walletId, callback) {
         return callback(err);
       }
       if (res.statusCode < 200 || res.statusCode > 299) {
-        return callback(new Error('Response code from server was ' + err));
+        return callback('Response code from server was ' + res.statusCode);
       }
       var json;
       if (body) {
@@ -126,7 +126,7 @@ function upload(walletId, callback) {
 
 upload(walletId, function(err, jobId) {
   if(err) {
-    return console.error('Queue overloaded.');
+    return console.error(err);
   }
   console.log('upload in-progress, Wallet id: ' + walletId + ' job id: ' + jobId);
 });
