@@ -12,7 +12,8 @@ function isTLS(url) {
 
 program
   .option('-u, --url <url>', 'Server url to register with')
-  .usage('[options] e.g. wallet-utxos -u https://example.com/wallet-api <walletId> <output file or stdout>')
+  .option('-f, --file <walletFile>', 'Wallet file to use. Default: ~/.wallet.json')
+  .usage('[options] e.g. wallet-utxos -f wallet.json -u https://localhost:3001 <output file or stdout>')
   .parse(process.argv);
 
 function writeOutputFile(file, data, callback) {
@@ -30,14 +31,12 @@ function writeOutputFile(file, data, callback) {
 }
 
 var args = program.args;
-if (!args[0]) {
-  program.help();
-} else if (args[1] && fs.existsSync(args[1])) {
-  console.error('Output file: "' + args[1] + '" already exists, not over-writing, aborting.');
+if (args[0] && fs.existsSync(args[0])) {
+  console.error('Output file: "' + args[0] + '" already exists, not over-writing, aborting.');
   process.exit(-1);
 }
-
-var walletId = args[0];
+var walletJSON = JSON.parse(fs.readFileSync(program.file));
+var walletId = walletJSON.walletId;
 var urlStr = program.url || 'https://localhost:3001/wallet-api';
 
 function getUtxos(walletId, callback) {
@@ -45,12 +44,13 @@ function getUtxos(walletId, callback) {
   var httpOptions = {
     protocol: parsedUrl.protocol,
     hostname: parsedUrl.hostname,
-    port: (parsedUrl.port || isTLS(parsedUrl) ? 443 : 80),
+    port: parsedUrl.port || (isTLS(parsedUrl) ? 443 : 80),
     method: 'GET',
     url: urlStr,
-    path: '/wallets/' + walletId + '/utxos',
+    path: '/wallet-api/wallets/' + walletId + '/utxos',
     body: ''
   };
+
   var error;
   var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
 
@@ -68,10 +68,10 @@ function getUtxos(walletId, callback) {
         } catch(e) {
           return callback(e);
         }
-        if (body.utxos) {
-          callback(null, body.utxos);
+        if (json.utxos) {
+          return callback(null, json.utxos);
         } else {
-          callback(new Error('Response json not as expected - no utxos key in reply: ' + body));
+          return callback(new Error('Response json not as expected - no utxos key in reply: ' + body));
         }
       }
       callback(new Error('no body in response.'));
@@ -100,16 +100,16 @@ getUtxos(walletId, function(err, utxos) {
   if(err) {
     throw err;
   }
-  if (args[1]) {
-    writeOutputFile(args[1], utxos, function(err) {
+  if (args[0]) {
+    writeOutputFile(args[0], utxos, function(err) {
       if(err) {
         throw err;
       }
-      console.log('Utxos written to ' + args[1] + ' for walletId: ' + walletId);
+      console.log('Utxos written to ' + args[0] + ' for walletId: ' + walletId);
     });
   } else {
     setImmediate(function() {
-      process.stdout.write(utxos);
+      process.stdout.write(JSON.stringify(utxos));
     });
   }
 });
