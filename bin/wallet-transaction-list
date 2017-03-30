@@ -11,9 +11,10 @@ function isTLS(url) {
 }
 
 program
-  .option('-u, --url <url>', 'Server url to register with')
+  .option('-u, --url <url>', 'Server url to register with. Default: http://localhost:3001')
   .option('-f, --file <walletFile>', 'Wallet file to use. Default: ~/.wallet.json')
-  .usage('[options] e.g. wallet-utxos -f wallet.json -u https://localhost:3001 <output file or stdout>')
+  .option('-d, --dates <dates>', 'Date range. Default: all-time')
+  .usage('[options] e.g. wallet-transactions-list -f wallet.json -u http://localhost:3001 <output file or stdout>')
   .parse(process.argv);
 
 function writeOutputFile(file, data, callback) {
@@ -37,9 +38,11 @@ if (args[0] && fs.existsSync(args[0])) {
 }
 var walletJSON = JSON.parse(fs.readFileSync(program.file));
 var walletId = walletJSON.walletId;
-var urlStr = program.url || 'https://localhost:3001/wallet-api';
+var urlStr = program.url || 'http://localhost:3001';
 
-function getUtxos(walletId, callback) {
+var dateRange = parseDateRange(program.dates);
+
+function getTransactionList(walletId, dateRange, callback) {
   var parsedUrl = url.parse(urlStr);
   var httpOptions = {
     protocol: parsedUrl.protocol,
@@ -47,9 +50,11 @@ function getUtxos(walletId, callback) {
     port: parsedUrl.port || (isTLS(parsedUrl) ? 443 : 80),
     method: 'GET',
     url: urlStr,
-    path: '/wallet-api/wallets/' + walletId + '/utxos',
+    path: '/wallet-api/wallets/' + walletId + '/transactions?start=' +  dateRange[0].getTime() + '&end=' + dateRange[1].getTime(),
+    params: { start: dateRange[0], end: dateRange[1] },
     body: ''
   };
+  console.log(httpOptions);
 
   var error;
   var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
@@ -68,10 +73,10 @@ function getUtxos(walletId, callback) {
         } catch(e) {
           return callback(e);
         }
-        if (json.utxos) {
-          return callback(null, json.utxos);
+        if (json.transactions) {
+          return callback(null, json.transactions);
         } else {
-          return callback(new Error('Response json not as expected - no utxos key in reply: ' + body));
+          return callback(new Error('Response json not as expected - no transactions key in reply: ' + body));
         }
       }
       callback(new Error('no body in response.'));
@@ -96,17 +101,24 @@ function getUtxos(walletId, callback) {
   req.end();
 }
 
-getUtxos(walletId, function(err, utxos) {
+function parseDateRange(range) {
+  var dates = range.split(/\s+/);
+  return dates.map(function(date) {
+    return new Date(date);
+  });
+}
+
+getTransactionList(walletId, dateRange, function(err, transactions) {
   if(err) {
     throw err;
   }
-  var data = JSON.stringify(utxos);
+  var data = JSON.stringify(transactions);
   if (args[0]) {
     writeOutputFile(args[0], data, function(err) {
       if(err) {
         throw err;
       }
-      console.log('Utxos written to ' + args[0] + ' for walletId: ' + walletId);
+      console.log('Transactions written to ' + args[0] + ' for walletId: ' + walletId);
     });
   } else {
     setImmediate(function() {
@@ -114,4 +126,5 @@ getUtxos(walletId, function(err, utxos) {
     });
   }
 });
+
 
