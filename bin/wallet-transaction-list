@@ -1,48 +1,52 @@
 #!/usr/bin/env node
 
+var _ = require('lodash');
 var program = require('commander');
 var http = require('http');
 var https = require('https');
 var fs = require('fs');
 var url = require('url');
-
-function isTLS(url) {
-  return url.protocol === 'https:';
-}
+var bitcore = require('bitcore-lib');
+var Script = bitcore.Script;
+var Address = bitcore.Address;
 
 program
   .option('-u, --url <url>', 'Server url to register with. Default: http://localhost:3001')
   .option('-f, --file <walletFile>', 'Wallet file to use. Default: ~/.wallet.json')
   .option('-d, --dates <dates>', 'Date range. Default: all-time')
-  .usage('[options] e.g. wallet-transactions-list -f wallet.json -u http://localhost:3001 <output file or stdout>')
+  .usage('[options] e.g. wallet-transactions-list -f wallet.json -u http://localhost:3001 -d "2017-01-01 2017-04-01"' )
   .parse(process.argv);
 
-function writeOutputFile(file, data, callback) {
-  fs.open(file, 'wx', function(err, fd) {
-    if (err) {
-      return callback(err);
-    }
-    fs.write(fd, data, function(err) {
-      if(err) {
-        return callback(err);
-      }
-      callback();
-    });
-  });
-}
-
 var args = program.args;
-if (args[0] && fs.existsSync(args[0])) {
-  console.error('Output file: "' + args[0] + '" already exists, not over-writing, aborting.');
-  process.exit(-1);
-}
 var walletJSON = JSON.parse(fs.readFileSync(program.file));
 var walletId = walletJSON.walletId;
 var urlStr = program.url || 'http://localhost:3001';
-
+var addresses = getAddresses(walletJSON);
 var dateRange = parseDateRange(program.dates);
+var network = getNetwork();
 
-function getTransactionList(walletId, dateRange, callback) {
+function isTLS(url) {
+  return url.protocol === 'https:';
+}
+
+function getAddresses(walletJSON) {
+  return walletJSON.keys.map(function(record) {
+    return record.address;
+  });
+}
+
+function getNetwork() {
+  return Address.fromString(walletJSON.keys[0].address).network;
+}
+
+function parseDateRange(range) {
+  var dates = range.split(/\s+/);
+  return dates.map(function(date) {
+    return new Date(date);
+  });
+}
+
+function getTransactionList(walletId, dateRange) {
   var parsedUrl = url.parse(urlStr);
   var httpOptions = {
     protocol: parsedUrl.protocol,
@@ -54,41 +58,25 @@ function getTransactionList(walletId, dateRange, callback) {
     params: { start: dateRange[0], end: dateRange[1] },
     body: ''
   };
-  console.log(httpOptions);
 
   var error;
   var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
 
-    function finish(err, body) {
+    function finish(err) {
       if (err) {
-        return callback(err);
+        throw err;
       }
       if (res.statusCode < 200 || res.statusCode > 299) {
-        return callback(new Error('Response code from server was ' + res.statusCode));
+        throw new Error('Response code from server was ' + res.statusCode);
       }
-      var json;
-      if (body) {
-        try {
-          json = JSON.parse(body);
-        } catch(e) {
-          return callback(e);
-        }
-        if (json.transactions) {
-          return callback(null, json.transactions);
-        } else {
-          return callback(new Error('Response json not as expected - no transactions key in reply: ' + body));
-        }
-      }
-      callback(new Error('no body in response.'));
     }
 
-    var body = '';
     res.on('data', function(chunk) {
-      body += chunk;
+      transactionToList(JSON.parse(chunk.toString()));
     });
 
     res.on('end', function() {
-      finish(error, body);
+      finish(error);
     });
 
   });
@@ -101,30 +89,127 @@ function getTransactionList(walletId, dateRange, callback) {
   req.end();
 }
 
-function parseDateRange(range) {
-  var dates = range.split(/\s+/);
-  return dates.map(function(date) {
-    return new Date(date);
+function labelTransactions(transaction) {
+  var inputAmount = 0;
+  var txInputAmount = 0; //the overall tx input amount, including others' inputs
+  var txOutputAmount = 0;
+  var outputAmount = 0;
+
+  transaction.inputs.forEach(function(input) {
+    var address = new Script(input.script).toAddress().toString();
+    input.address = address;
+    txInputAmount += input.inputSatoshis;
+    if (address && addresses.indexOf(address) !== -1) {
+      inputAmount += input.inputSatoshis;
+      input.wallet = true;
+    } else {
+      input.wallet = false;
+    }
   });
+
+  transaction.outputs.forEach(function(output) {
+    var address = new Script(output.script).toAddress(network).toString();
+    output.address = address;
+    txOutputAmount += output.satoshis;
+    if (addresses.indexOf(address) !== -1) {
+      outputAmount += output.satoshis;
+      output.wallet = true;
+    } else {
+      output.wallet = false;
+    }
+  });
+
+  transaction.delta = outputAmount - inputAmount;
+  transaction.fee = txInputAmount - txOutputAmount;
 }
 
-getTransactionList(walletId, dateRange, function(err, transactions) {
-  if(err) {
-    throw err;
-  }
-  var data = JSON.stringify(transactions);
-  if (args[0]) {
-    writeOutputFile(args[0], data, function(err) {
-      if(err) {
-        throw err;
+function transactionToList(transaction) {
+  var self = this;
+
+  var list = [];
+
+  labelTransactions(transaction);
+  var delta = transaction.delta;
+
+  for (var i = 0; i < transaction.outputs.length; i++) {
+    var output = transaction.outputs[i];
+
+    var line;
+    if (delta > 0) { //means we are receiving money
+
+      if (output.wallet) {
+        var received = Math.min(output.satoshis, delta);
+        delta -= received;
+        line = JSON.stringify(formatItem({
+          type: 'receive',
+          transaction: transaction,
+          address: output.address,
+          outputIndex: i,
+          satoshis: received
+        }));
       }
-      console.log('Transactions written to ' + args[0] + ' for walletId: ' + walletId);
-    });
-  } else {
-    setImmediate(function() {
-      process.stdout.write(JSON.stringify(data));
-    });
+
+    } else {
+
+      if (!output.wallet) {
+        var sent = Math.min(output.satoshis, delta * -1);
+        delta += sent;
+        line = JSON.stringify(formatItem({
+          type: 'send',
+          transaction: transaction,
+          address: output.address,
+          outputIndex: i,
+          satoshis: sent * -1
+        }));
+      }
+
+    }
+    if (line) {
+      process.stdout.write(line + '\n');
+    }
   }
-});
+  process.stdout.write(JSON.stringify(formatFeeItem(transaction)) + '\n');
+};
 
+function formatFeeItem(transaction) {
 
+  if (!transaction.fee) {
+    return;
+  }
+
+  var feeItem = {
+    height: transaction.height,
+    txid: transaction.hash,
+    blockTime: transaction.timestamp,
+    category: 'fee',
+  };
+
+  feeItem.satoshis = -1 * transaction.fee;
+  return feeItem;
+};
+
+function formatItem (options) {
+
+  var item = {
+    height: options.transaction.height,
+    txid: options.transaction.hash,
+    blockTime: options.transaction.timestamp,
+    category: options.type,
+  };
+
+  if (_.isString(options.address)) {
+    item.address = options.address;
+  }
+
+  if (options.outputIndex >= 0) {
+    item.outputIndex = options.outputIndex;
+  } else if (options.inputIndex >= 0) {
+    item.inputIndex = options.inputIndex;
+  }
+
+  item.satoshis = options.satoshis;
+
+  return item;
+};
+
+getTransactionList(walletId, dateRange);
