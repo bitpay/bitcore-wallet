@@ -89,6 +89,52 @@ function getTransactionList(walletId, dateRange) {
   req.end();
 }
 
+function moveTransactionToList(transaction) {
+  var list = [];
+  var item = {
+    transaction: transaction,
+    type: 'receive',
+  };
+  item.satoshis = transaction.inputAmount;
+  process.stdout.write(JSON.stringify(formatItem(item)) + '\n');
+  item.type = 'send';
+  item.satoshis = transaction.inputAmount * -1;
+  process.stdout.write(JSON.stringify(formatItem(item)) + '\n');
+  process.stdout.write(JSON.stringify(formatFeeItem(transaction)) + '\n');
+}
+
+function joinTransactionToList(transaction) {
+  var self = this;
+  var list = [];
+  var item = {
+    transaction: transaction,
+    satoshis: transaction.delta,
+    address: ''
+  };
+  if (transaction.delta > 0) {
+    item.type = 'shared-receive';
+  } else if (transaction.delta < 0) {
+    item.type = 'shared-send';
+  } else {
+    item.type = 'shared-equal';
+  }
+  process.stdout.write(JSON.stringify(formatItem(item)) + '\n');
+};
+
+function isMove(transaction) {
+  return transaction.inputAmount >= 0 &&
+    (transaction.fee + transaction.outputAmount) === transaction.inputAmount;
+}
+
+function isJoin(transaction) {
+  var ans = transaction.inputs[0].wallet;
+  transaction.inputs.forEach(function(input) {
+    if (ans !== input.wallet) {
+      return true;
+    }
+  });
+}
+
 function labelTransactions(transaction) {
   var inputAmount = 0;
   var txInputAmount = 0; //the overall tx input amount, including others' inputs
@@ -96,7 +142,7 @@ function labelTransactions(transaction) {
   var outputAmount = 0;
 
   transaction.inputs.forEach(function(input) {
-    var address = new Script(input.script).toAddress().toString();
+    var address = new Script(input.script).toAddress(network).toString();
     input.address = address;
     txInputAmount += input.inputSatoshis;
     if (address && addresses.indexOf(address) !== -1) {
@@ -119,6 +165,8 @@ function labelTransactions(transaction) {
     }
   });
 
+  transaction.inputAmount = inputAmount;
+  transaction.outputAmount = outputAmount;
   transaction.delta = outputAmount - inputAmount;
   transaction.fee = txInputAmount - txOutputAmount;
 }
@@ -129,6 +177,15 @@ function transactionToList(transaction) {
   var list = [];
 
   labelTransactions(transaction);
+
+  if (isMove(transaction)) {
+    return moveTransactionToList(transaction);
+  }
+
+  if (isJoin(transaction)) {
+    return joinTransactionToList(transaction);
+  }
+
   var delta = transaction.delta;
 
   for (var i = 0; i < transaction.outputs.length; i++) {
@@ -169,7 +226,7 @@ function transactionToList(transaction) {
     }
   }
   process.stdout.write(JSON.stringify(formatFeeItem(transaction)) + '\n');
-};
+}
 
 function formatFeeItem(transaction) {
 
@@ -186,7 +243,7 @@ function formatFeeItem(transaction) {
 
   feeItem.satoshis = -1 * transaction.fee;
   return feeItem;
-};
+}
 
 function formatItem (options) {
 
@@ -210,6 +267,6 @@ function formatItem (options) {
   item.satoshis = options.satoshis;
 
   return item;
-};
+}
 
 getTransactionList(walletId, dateRange);
