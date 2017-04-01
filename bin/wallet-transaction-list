@@ -10,6 +10,8 @@ var bitcore = require('bitcore-lib');
 var Script = bitcore.Script;
 var Address = bitcore.Address;
 
+var resultsPrinted = false;
+
 program
   .option('-u, --url <url>', 'Server url to register with. Default: http://localhost:3001')
   .option('-f, --file <walletFile>', 'Wallet file to use. Default: ~/.wallet.json')
@@ -62,21 +64,25 @@ function getTransactionList(walletId, dateRange) {
   var error;
   var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
 
-    function finish(err) {
-      if (err) {
-        throw err;
-      }
-      if (res.statusCode < 200 || res.statusCode > 299) {
-        throw new Error('Response code from server was ' + res.statusCode);
-      }
-    }
+    var streamErr;
+    res.on('error', function(err) {
+      streamErr = err;
+    });
 
     res.on('data', function(chunk) {
+      if (!goodStatusCode(res.statusCode)) {
+        throw new Error('Response code from server was ' + res.statusCode);
+      }
       transactionToList(JSON.parse(chunk.toString()));
     });
 
     res.on('end', function() {
-      finish(error);
+      if (streamErr) {
+        throw streamErr;
+      }
+      if (!resultsPrinted) {
+        console.log('no results.');
+      }
     });
 
   });
@@ -89,6 +95,13 @@ function getTransactionList(walletId, dateRange) {
   req.end();
 }
 
+function goodStatusCode(code) {
+  if (code < 200 || code > 299) {
+    return false;
+  }
+  return true;
+}
+
 function moveTransactionToList(transaction) {
   var list = [];
   var item = {
@@ -96,12 +109,18 @@ function moveTransactionToList(transaction) {
     type: 'receive',
   };
   item.satoshis = transaction.inputAmount;
-  process.stdout.write(JSON.stringify(formatItem(item)) + '\n');
+
+  print(formatItem(item));
+
   item.type = 'send';
   item.satoshis = transaction.inputAmount * -1;
-  process.stdout.write(JSON.stringify(formatItem(item)) + '\n');
-  process.stdout.write(JSON.stringify(formatFeeItem(transaction)) + '\n');
+
+  print(formatItem(item));
+
+  print(formatFeeItem(transaction));
+
 }
+
 
 function joinTransactionToList(transaction) {
   var self = this;
@@ -118,7 +137,9 @@ function joinTransactionToList(transaction) {
   } else {
     item.type = 'shared-equal';
   }
-  process.stdout.write(JSON.stringify(formatItem(item)) + '\n');
+
+  print(formatItem(item));
+
 };
 
 function isMove(transaction) {
@@ -136,39 +157,41 @@ function isJoin(transaction) {
 }
 
 function labelTransactions(transaction) {
-  var inputAmount = 0;
-  var txInputAmount = 0; //the overall tx input amount, including others' inputs
-  var txOutputAmount = 0;
-  var outputAmount = 0;
 
-  transaction.inputs.forEach(function(input) {
-    var address = new Script(input.script).toAddress(network).toString();
-    input.address = address;
-    txInputAmount += input.inputSatoshis;
+  var inputResults = aggregate(transaction.inputs);
+  var outputResults = aggregate(transaction.outputs);
+
+  transaction.inputs = inputResults.results;
+  transaction.outputs = outputResults.results;
+  transaction.inputAmount = inputResults.amount;
+  transaction.outputAmount = outputResults.amount;
+  transaction.delta = outputResults.amount - inputResults.amount;
+  transaction.fee = inputResults.txAmount - outputResults.txAmount;
+}
+
+function aggregate(records) {
+
+  var txAmount = 0;
+  var amount = 0;
+
+  var results = records.map(function(record) {
+    var address = new Script(record.script).toAddress(network).toString();
+    var temporalAmount = (record.inputSatoshis || record.satoshis);
+
+    record.address = address;
+
+    txAmount += temporalAmount;
+
+    record.wallet = false;
     if (address && addresses.indexOf(address) !== -1) {
-      inputAmount += input.inputSatoshis;
-      input.wallet = true;
-    } else {
-      input.wallet = false;
+      amount += temporalAmount;
+      record.wallet = true;
     }
+    return record;
   });
 
-  transaction.outputs.forEach(function(output) {
-    var address = new Script(output.script).toAddress(network).toString();
-    output.address = address;
-    txOutputAmount += output.satoshis;
-    if (addresses.indexOf(address) !== -1) {
-      outputAmount += output.satoshis;
-      output.wallet = true;
-    } else {
-      output.wallet = false;
-    }
-  });
+  return { results: results, txAmount: txAmount, amount: amount };
 
-  transaction.inputAmount = inputAmount;
-  transaction.outputAmount = outputAmount;
-  transaction.delta = outputAmount - inputAmount;
-  transaction.fee = txInputAmount - txOutputAmount;
 }
 
 function transactionToList(transaction) {
@@ -191,41 +214,51 @@ function transactionToList(transaction) {
   for (var i = 0; i < transaction.outputs.length; i++) {
     var output = transaction.outputs[i];
 
-    var line;
+    var line = '';
     if (delta > 0) { //means we are receiving money
 
       if (output.wallet) {
         var received = Math.min(output.satoshis, delta);
         delta -= received;
-        line = JSON.stringify(formatItem({
+        line = formatItem({
           type: 'receive',
           transaction: transaction,
           address: output.address,
           outputIndex: i,
           satoshis: received
-        }));
+        });
       }
 
-    } else {
+    } else if (delta < 0) {
 
       if (!output.wallet) {
+
         var sent = Math.min(output.satoshis, delta * -1);
         delta += sent;
-        line = JSON.stringify(formatItem({
+        line = formatItem({
           type: 'send',
           transaction: transaction,
           address: output.address,
           outputIndex: i,
           satoshis: sent * -1
-        }));
+        });
       }
 
     }
+
     if (line) {
-      process.stdout.write(line + '\n');
+      print(line);
     }
+
   }
-  process.stdout.write(JSON.stringify(formatFeeItem(transaction)) + '\n');
+
+  print(formatFeeItem(transaction));
+
+}
+
+function print(line) {
+  resultsPrinted = true;
+  process.stdout.write(JSON.stringify(line) + '\n');
 }
 
 function formatFeeItem(transaction) {
