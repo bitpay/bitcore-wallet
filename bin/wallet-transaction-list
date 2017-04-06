@@ -69,11 +69,19 @@ function getTransactionList(walletId, dateRange) {
       streamErr = err;
     });
 
+    var buffer = '';
     res.on('data', function(chunk) {
+      buffer += chunk.toString();
       if (!goodStatusCode(res.statusCode)) {
         throw new Error('Response code from server was ' + res.statusCode);
       }
-      transactionToList(JSON.parse(chunk.toString()));
+      try {
+        var obj = JSON.parse(buffer);
+        buffer = '';
+        transactionToList(obj);
+      } catch(e) {
+        // keep building buffer
+      }
     });
 
     res.on('end', function() {
@@ -258,6 +266,7 @@ function transactionToList(transaction) {
 
 function print(line) {
   resultsPrinted = true;
+  if (typeof line == 'undefined') return;
   process.stdout.write(JSON.stringify(line) + '\n');
 }
 
