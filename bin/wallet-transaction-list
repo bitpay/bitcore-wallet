@@ -7,8 +7,9 @@ var https = require('https');
 var fs = require('fs');
 var url = require('url');
 var bitcore = require('bitcore-lib');
-var Script = bitcore.Script;
 var Address = bitcore.Address;
+var Script = bitcore.Script;
+var Transaction = bitcore.Transaction;
 
 var resultsPrinted = false;
 
@@ -64,6 +65,11 @@ function getTransactionList(walletId, dateRange) {
   var error;
   var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
 
+    if (!goodStatusCode(res.statusCode)) {
+      process.stderr.write('Response code from server was ' + res.statusCode + '\n');
+      process.exit(-1);
+    }
+
     var streamErr;
     res.on('error', function(err) {
       streamErr = err;
@@ -72,16 +78,9 @@ function getTransactionList(walletId, dateRange) {
     var buffer = '';
     res.on('data', function(chunk) {
       buffer += chunk.toString();
-      if (!goodStatusCode(res.statusCode)) {
-        throw new Error('Response code from server was ' + res.statusCode);
-      }
-      try {
-        var obj = JSON.parse(buffer);
-        buffer = '';
-        transactionToList(obj);
-      } catch(e) {
-        // keep building buffer
-      }
+      var obj = JSON.parse(buffer);
+      buffer = '';
+      transactionToList(obj);
     });
 
     res.on('end', function() {
@@ -96,7 +95,8 @@ function getTransactionList(walletId, dateRange) {
   });
 
   req.on('error', function(e) {
-    error = e;
+    console.error(e);
+    process.exit(-1);
   });
 
   req.write('');
@@ -131,14 +131,21 @@ function moveTransactionToList(transaction) {
 
 
 function joinTransactionToList(transaction) {
+
   var self = this;
+
   var list = [];
+
+  var printFeeLine = true;
+
   var item = {
     transaction: transaction,
     satoshis: transaction.delta,
     address: ''
   };
+
   if (transaction.delta > 0) {
+    printFeeLine = false;
     item.type = 'shared-receive';
   } else if (transaction.delta < 0) {
     item.type = 'shared-send';
@@ -146,12 +153,14 @@ function joinTransactionToList(transaction) {
     item.type = 'shared-equal';
   }
 
-  print(formatItem(item));
+  if (printFeeLine) {
+    print(formatItem(item));
+  }
 
-};
+}
 
 function isMove(transaction) {
-  return transaction.inputAmount >= 0 &&
+  return transaction.allMine && transaction.inputAmount >= 0 &&
     (transaction.fee + transaction.outputAmount) === transaction.inputAmount;
 }
 
@@ -175,12 +184,14 @@ function labelTransactions(transaction) {
   transaction.outputAmount = outputResults.amount;
   transaction.delta = outputResults.amount - inputResults.amount;
   transaction.fee = inputResults.txAmount - outputResults.txAmount;
+  transaction.allMine = inputResults.allMine && outputResults.allMine;
 }
 
 function aggregate(records) {
 
   var txAmount = 0;
   var amount = 0;
+  var allMine = true;
 
   var results = records.map(function(record) {
     var address = new Script(record.script).toAddress(network).toString();
@@ -194,11 +205,13 @@ function aggregate(records) {
     if (address && addresses.indexOf(address) !== -1) {
       amount += temporalAmount;
       record.wallet = true;
+    } else {
+      allMine = false;
     }
     return record;
   });
 
-  return { results: results, txAmount: txAmount, amount: amount };
+  return { results: results, txAmount: txAmount, amount: amount, allMine: allMine };
 
 }
 
@@ -206,6 +219,21 @@ function transactionToList(transaction) {
   var self = this;
 
   var list = [];
+  var printFeeLine = false;
+
+  if (!_.isObject(transaction)) {
+    throw 'provided transaction is not an object';
+  }
+
+  if (transaction.inputs.length < 1 || transaction.outputs.length < 1) {
+    throw 'inputs and/or outputs are empty';
+  }
+
+  transaction.inputs.forEach(function(input) {
+    if (!(input.inputSatoshis > 0)) {
+      throw 'input satoshis not provided on one or more of the inputs, therefore we do not have enough information to build the report.';
+    }
+  });
 
   labelTransactions(transaction);
 
@@ -241,6 +269,8 @@ function transactionToList(transaction) {
 
       if (!output.wallet) {
 
+        printFeeLine = true;
+
         var sent = Math.min(output.satoshis, delta * -1);
         delta += sent;
         line = formatItem({
@@ -260,11 +290,14 @@ function transactionToList(transaction) {
 
   }
 
-  print(formatFeeItem(transaction));
+  if (printFeeLine) {
+    print(formatFeeItem(transaction));
+  }
 
 }
 
 function print(line) {
+console.trace(line);
   resultsPrinted = true;
   if (typeof line == 'undefined') return;
   process.stdout.write(JSON.stringify(line) + '\n');

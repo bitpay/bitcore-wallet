@@ -6,7 +6,7 @@ var expect = require('chai').expect;
 var exec = require('child_process').exec;
 var fs = require('fs');
 
-describe.only('Apply signatures to a raw transaction', function() {
+describe('Apply signatures to a raw transaction', function() {
   var testDirPath = path.resolve(__dirname, './testdata');
 
   it('should, given a non-hd wallet, sign a tranaction based on an input file', function(done) {
