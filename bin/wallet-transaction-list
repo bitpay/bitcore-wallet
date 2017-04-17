@@ -76,11 +76,16 @@ function getTransactionList(walletId, dateRange) {
     });
 
     var buffer = '';
+    //proper JSONL should be sent through the stream here. This means that each json object is demlimited by a newline character.
+    //this also means that only objects are sent and not arrays
     res.on('data', function(chunk) {
       buffer += chunk.toString();
-      var obj = JSON.parse(buffer);
-      buffer = '';
-      transactionToList(obj);
+      var endOfTx = buffer.match(/}\n/);
+      if (endOfTx) {
+        var obj = JSON.parse(buffer);
+        transactionToList(obj);
+        buffer = '';
+      }
     });
 
     res.on('end', function() {

@@ -71,7 +71,8 @@ describe('Wallet Transactions List', function() {
         res.statusCode = 200;
         var tx = new Transaction(txList.basicReceiveTx).toObject();
         tx.inputs[0].inputSatoshis = 23693808;
-        res.write(JSON.stringify(tx), 'utf8', function(err) {
+        var txStr = JSON.stringify(tx).replace(/\n/g, '') + '\n';
+        res.write(txStr, 'utf8', function(err) {
           if(err) {
             return done(err);
           }
@@ -96,7 +97,8 @@ describe('Wallet Transactions List', function() {
         res.statusCode = 200;
         var tx = new Transaction(txList.basicSendTx).toObject();
         tx.inputs[0].inputSatoshis = 66692455;
-        res.write(JSON.stringify(tx), 'utf8', function(err) {
+        var txStr = JSON.stringify(tx).replace(/\n/g, '') + '\n';
+        res.write(txStr, 'utf8', function(err) {
           if(err) {
             return done(err);
           }
@@ -109,6 +111,37 @@ describe('Wallet Transactions List', function() {
         stdout.should.equal(expected);
         done();
       });
+    });
+
+    it('should handle large (> 16 kb transactions) streamed from server', function(done) {
+      var expected = '{"txid":"3f53213674d3f3906ce600b0cb18a7c59af890c4904daca4a9220982868f71ef","category":"send","address":"1AdNcCL4XMabbm6aXR3bK8LJhHPRFGH2iv","outputIndex":0,"satoshis":-321093}\n{"txid":"3f53213674d3f3906ce600b0cb18a7c59af890c4904daca4a9220982868f71ef","category":"fee","satoshis":-13338532520}\n';
+
+      var tx = new Transaction(txList.basicSendTx).toObject();
+      //add inputs to increase size of tx
+      var input = tx.inputs[0];
+      input.inputSatoshis = 66692455;
+      var txInputs = tx.inputs;
+      for(var i = 0; i < 200; i++) { // resulting tx should be 215kb
+        txInputs.push(input);
+      }
+      var txStr = JSON.stringify(tx).replace(/\n/g, '') + '\n';
+
+      this.proxy.on('request', function(req, res) {
+        res.statusCode = 200;
+        res.write(txStr, 'utf8', function(err) {
+          if(err) {
+            return done(err);
+          }
+          res.end();
+        });
+      });
+
+      exec(execString, function(err, stdout, stderr) {
+        expect(err).to.be.null;
+        stdout.should.equal(expected);
+        done();
+      });
+
     });
   });
 });
