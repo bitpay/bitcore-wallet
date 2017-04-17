@@ -297,7 +297,6 @@ function transactionToList(transaction) {
 }
 
 function print(line) {
-console.trace(line);
   resultsPrinted = true;
   if (typeof line == 'undefined') return;
   process.stdout.write(JSON.stringify(line) + '\n');

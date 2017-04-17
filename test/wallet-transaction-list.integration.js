@@ -9,7 +9,7 @@ var http = require('http');
 var Transaction = require('bitcore-lib').Transaction;
 
 
-describe.only('Wallet Transactions List', function() {
+describe('Wallet Transactions List', function() {
   var testDirPath = path.resolve(__dirname, './testdata');
   var execString = __dirname + '/../bin/wallet-transaction-list -f ' +
         testDirPath + '/wallet.json -d "2017-01-01 2017-04-01"';
