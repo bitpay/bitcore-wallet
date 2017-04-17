@@ -78,9 +78,13 @@ function getTransactionList(walletId, dateRange) {
     var buffer = '';
     res.on('data', function(chunk) {
       buffer += chunk.toString();
-      var obj = JSON.parse(buffer);
-      buffer = '';
-      transactionToList(obj);
+      try {
+        var obj = JSON.parse(buffer);
+        buffer = '';
+        transactionToList(obj);
+      } catch(e) {
+        // keep building buffer
+      }
     });
 
     res.on('end', function() {
