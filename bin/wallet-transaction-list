@@ -80,15 +80,11 @@ function getTransactionList(walletId, dateRange) {
     //this also means that only objects are sent and not arrays
     res.on('data', function(chunk) {
       buffer += chunk.toString();
-      var endOfTx = buffer.match(/}\n/);
-      if (endOfTx) {
-        var obj = JSON.parse(buffer);
-        transactionToList(obj);
-        buffer = '';
-      }
+      buffer = parse(buffer);
     });
 
     res.on('end', function() {
+      parse(buffer);
       if (streamErr) {
         throw streamErr;
       }
@@ -106,6 +102,17 @@ function getTransactionList(walletId, dateRange) {
 
   req.write('');
   req.end();
+}
+
+function parse(buffer) {
+  var endOfTx = buffer.match(/}\n/);
+  if (endOfTx) {
+    var txStr = buffer.slice(0, endOfTx.index + 1);
+    var obj = JSON.parse(txStr);
+    transactionToList(obj);
+    buffer = buffer.slice(endOfTx.index + 2);
+  }
+  return buffer;
 }
 
 function goodStatusCode(code) {

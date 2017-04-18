@@ -1,0 +1,24 @@
+{
+  "walletId": "8f670bccbf51707791660d0a55f6d1c05d2feee2366b90b5b93bc070e8090543",
+  "HDPublicKey": "xpub661MyMwAqRbcFRwjjuW4Jzz7s9jiH1Xtr17BEhpmYzoPcvMW8cE6fRmGWnjLYh3o9FzSZMW8zCiiotE2YHPWow2Zoop9VeWBxPR18Ac3jBM",
+  "HDPrivateKey": "xprv9s21ZrQH143K2wsGdsy3ws3PK7uDsYp3UnBaSKR9zfGQk82Mb4ur7dSnfWYj4jBsEF61VfA4G6b3HZ5USgxrzPpUnxivLJJrd6eA8DLfDEM",
+  "masterKey": {
+    "cipherText": "2c83aaf5debdfc472bb6559535c0948240aceae08f31f710bb0d67ccc488414fdef94cbc5d2c9f9beade72719e7bd444",
+    "derivationMethod": "SHA512",
+    "id": 1,
+    "rounds": 263888,
+    "salt": "8baf75e2eab23af0"
+  },
+  "keys": [
+    {
+      "cipherText": "dfa2b2e5dc4814d3c82d7be1dcdf4bd37856ae7c6dd6abb829f76018bed310b64fc744dc2632c62bb7b64925d0e90676",
+      "pubKey": "0200962f3692a448b70c495147b4eaf80b301d6fc7de9851e6b7ffa1eb0f10ec9e",
+      "address": "1JsJffMQUi51v3q5R4DzGvhnPsHKMPSPdJ"
+    },
+    {
+      "cipherText": "dfa2b2e5dc4814d3c82d7be1dcdf4bd37856ae7c6dd6abb829f76018bed310b64fc744dc2632c62bb7b64925d0e90676",
+      "pubKey": "0200962f3692a448b70c495147b4eaf80b301d6fc7de9851e6b7ffa1eb0f10ec9e",
+      "address": "3MfN5to5K5be2RupWE8rjJHQ6V9L8ypWeh"
+    }
+  ]
+}
