@@ -10,6 +10,7 @@ var bitcore = require('bitcore-lib');
 var Address = bitcore.Address;
 var Script = bitcore.Script;
 var Transaction = bitcore.Transaction;
+var Hash = bitcore.crypto.Hash;
 
 var resultsPrinted = false;
 
@@ -24,7 +25,7 @@ var args = program.args;
 var walletJSON = JSON.parse(fs.readFileSync(program.file));
 var walletId = walletJSON.walletId;
 var urlStr = program.url || 'http://localhost:3001';
-var addresses = getAddresses(walletJSON);
+var keys = getKeys(walletJSON);
 var dateRange = parseDateRange(program.dates);
 var network = getNetwork();
 
@@ -32,10 +33,14 @@ function isTLS(url) {
   return url.protocol === 'https:';
 }
 
-function getAddresses(walletJSON) {
-  return walletJSON.keys.map(function(record) {
-    return record.address;
+function getKeys(walletJSON) {
+  var keys = {};
+  walletJSON.keys.forEach(function(record) {
+    var key = {};
+    keys[record.pubKey] = record.address;
+    keys[Hash.sha256ripemd160(new Buffer(record.pubKey, 'hex')).toString('hex')] = record.address;
   });
+  return keys;
 }
 
 function getNetwork() {
@@ -187,7 +192,7 @@ function isJoin(transaction) {
 
 function labelTransactions(transaction) {
 
-  var inputResults = aggregate(transaction.inputs);
+  var inputResults = aggregate(transaction.inputs, true);
   var outputResults = aggregate(transaction.outputs);
 
   transaction.inputs = inputResults.results;
@@ -199,25 +204,30 @@ function labelTransactions(transaction) {
   transaction.allMine = inputResults.allMine && outputResults.allMine;
 }
 
-function aggregate(records) {
+function aggregate(records, input) {
 
   var txAmount = 0;
   var amount = 0;
   var allMine = true;
 
   var results = records.map(function(record) {
-    var address = new Script(record.script).toAddress(network).toString();
+
+    var pubKeyOrHash = getPubKeyOrHash(record.script);
     var temporalAmount = (record.inputSatoshis || record.satoshis);
 
-    record.address = address;
+    record.address = keys[pubKeyOrHash];
 
     txAmount += temporalAmount;
 
     record.wallet = false;
-    if (address && addresses.indexOf(address) !== -1) {
+    if (record.address) {
       amount += temporalAmount;
       record.wallet = true;
     } else {
+      //for inputs (we are sending money from our wallet to external address)
+      if (input) {
+        record.address = getAddressFromPubKeyOrHash(pubKeyOrHash);
+      }
       allMine = false;
     }
     return record;
@@ -225,6 +235,27 @@ function aggregate(records) {
 
   return { results: results, txAmount: txAmount, amount: amount, allMine: allMine };
 
+}
+
+function getAddressFromPubKeyOrHash(pubKeyOrHash) {
+  if (pubKeyOrHash.length === 20) {
+    return new Address(new Buffer(pubKeyOrHash, 'hex'), network).toString('hex');
+  }
+  return new Address(Hash.sha256ripemd160(new Buffer(pubKeyOrHash, 'hex'), network)).toString('hex');
+}
+
+function getPubKeyOrHash(scriptBuf) {
+  var script = new Script(scriptBuf);
+
+  //input p2pkh or output p2pk
+  if (script.chunks[1].len === 33 || script.chunks[1].len === 20) {
+    return script.chunks[1].buf.toString('hex');
+  }
+
+  //output p2pk either compressed or uncompressed pubKey
+  if (script.chunks[0].len === 33 || script.chunks[0].len === 65) {
+   return script.chunks[0].buf.toString('hex');
+  }
 }
 
 function transactionToList(transaction) {
