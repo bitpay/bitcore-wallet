@@ -213,7 +213,6 @@ function aggregate(records, input) {
   var results = records.map(function(record) {
 
     var pubKeyOrHash = getPubKeyOrHash(record.script);
-    if (!pubKeyOrHash) console.log(record.script + '\n');
     var temporalAmount = (record.inputSatoshis || record.satoshis);
 
     record.address = keys[pubKeyOrHash];
