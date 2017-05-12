@@ -213,6 +213,7 @@ function aggregate(records, input) {
   var results = records.map(function(record) {
 
     var pubKeyOrHash = getPubKeyOrHash(record.script);
+    if (!pubKeyOrHash) console.log(record.script + '\n');
     var temporalAmount = (record.inputSatoshis || record.satoshis);
 
     record.address = keys[pubKeyOrHash];
@@ -225,7 +226,7 @@ function aggregate(records, input) {
       record.wallet = true;
     } else {
       //for inputs (we are sending money from our wallet to external address)
-      if (input) {
+      if (input && pubKeyOrHash) {
         record.address = getAddressFromPubKeyOrHash(pubKeyOrHash);
       }
       allMine = false;
@@ -247,15 +248,31 @@ function getAddressFromPubKeyOrHash(pubKeyOrHash) {
 function getPubKeyOrHash(scriptBuf) {
   var script = new Script(scriptBuf);
 
-  //input p2pkh or output p2pk
-  if (script.chunks[1].len === 33 || script.chunks[1].len === 20) {
+  //input p2pkh
+  if (script.chunks && script.chunks[1] && script.chunks[1].len === 33) {
     return script.chunks[1].buf.toString('hex');
   }
 
   //output p2pk either compressed or uncompressed pubKey
-  if (script.chunks[0].len === 33 || script.chunks[0].len === 65) {
-   return script.chunks[0].buf.toString('hex');
+  if (script.chunks && script.chunks[1] && (script.chunks[1].len === 33 || script.chunks[1].len === 65)) {
+   return script.chunks[1].buf.toString('hex');
   }
+
+  //output p2pkh
+  if (script.chunks && script.chunks[2] && script.chunks[2].len === 20) {
+    return script.chunks[2].buf.toString('hex');
+  }
+
+  //output p2sh
+  if (script.chunks && script.chunks[1] && script.chunks[1].len === 20) {
+    return script.chunks[1].buf.toString('hex');
+  }
+
+  //input p2sh
+  if (script.chunks[script.chunks.length - 1] && script.chunks[script.chunks.length - 1].len > 75) {
+    return Hash.sha256ripemd160(script.chunks[script.chunks.length - 1].buf).toString('hex');
+  }
+
 }
 
 function transactionToList(transaction) {
@@ -273,7 +290,8 @@ function transactionToList(transaction) {
   }
 
   transaction.inputs.forEach(function(input) {
-    if (!(input.inputSatoshis > 0)) {
+    if (!(input.inputSatoshis >= 0)) {
+      print(transaction);
       throw 'input satoshis not provided on one or more of the inputs, therefore we do not have enough information to build the report.';
     }
   });
