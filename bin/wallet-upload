@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+var Readable = require('stream').Readable;
 var program = require('commander');
 var FormData = require('form-data');
 var form = new FormData();
@@ -19,13 +20,16 @@ function isTLS(url) {
 program
   .option('-u, --url <url>', 'Server url to register with')
   .option('-f, --file <file>', 'Wallet file to refer to when registering')
+  .option('-r, --rawfile <file>', 'Wallet raw file to refer to when registering')
   .usage('[options] e.g. wallet-register -f wallet.json -u https://example.com/wallet-api')
   .parse(process.argv);
 
 var args = program.args;
 var walletFile = program.file || process.env.HOME + '/.wallet.dat';
+var walletRawFile = program.rawfile;
 var urlStr = program.url || 'http://127.0.0.1:3001';
 var walletJSON = JSON.parse(fs.readFileSync(walletFile));
+var walletRaw = JSON.parse(fs.readFileSync(walletRawFile));
 var walletId = walletJSON.walletId;
 
 if (!walletId) {
@@ -64,11 +68,41 @@ transform._flush = function (callback) {
   callback();
 }
 
-function upload(walletId, callback) {
+var addressReadStream = new Readable({ objectMode: true });
+var readCounter = 0;
+var counter = 0;
+addressReadStream._read = function() {
+  var address = walletRaw[readCounter];
+  var toPush = '';
+  if (readCounter === 0) {
+    toPush  = '[';
+  }
+  if (!address) {
+    toPush = null;
+    this.push(toPush);
+    return;
+  }
+  toPush = toPush + '"' + address + '"';
+  readCounter++;
 
-  var stream = fs.createReadStream(walletFile);
-  stream.pipe(transform);
-  form.append('addresses', transform, walletFile);
+  if (readCounter === walletRaw.length) {
+    toPush += ']';
+  } else {
+    toPush += ',';
+  }
+  this.push(toPush);
+};
+
+function upload(walletId, callback) {
+  var data = JSON.stringify(walletRaw);
+  var CRLF = '\r\n';
+  var formOptions = { header:
+    CRLF + '--' + form.getBoundary() + CRLF +
+    'Content-Disposition: form-data; name="addresses"; filename="nofile.json;' + CRLF + CRLF,
+    knownLength: data.length
+  };
+
+  form.append('addresses', data, formOptions);
 
   var parsedUrl = url.parse(urlStr);
   var httpOptions = {
@@ -130,4 +164,3 @@ upload(walletId, function(err, jobId) {
   }
   console.log('upload in-progress, Wallet id: ' + walletId + ' job id: ' + jobId);
 });
-
