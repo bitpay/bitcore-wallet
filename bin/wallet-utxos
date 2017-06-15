@@ -37,7 +37,7 @@ if (args[0] && fs.existsSync(args[0])) {
 }
 var walletJSON = JSON.parse(fs.readFileSync(program.file));
 var walletId = walletJSON.walletId;
-var urlStr = program.url || 'https://localhost:3001/wallet-api';
+var urlStr = program.url || 'http://127.0.0.1:3001';
 
 function getUtxos(walletId, callback) {
   var parsedUrl = url.parse(urlStr);
@@ -51,7 +51,6 @@ function getUtxos(walletId, callback) {
     body: ''
   };
 
-  var error;
   var req = (isTLS(parsedUrl) ? https : http).request(httpOptions, function(res) {
 
     function finish(err, body) {
@@ -77,21 +76,20 @@ function getUtxos(walletId, callback) {
       callback(new Error('no body in response.'));
     }
 
+    res.on('error', finish);
+
     var body = '';
     res.on('data', function(chunk) {
       body += chunk;
     });
 
     res.on('end', function() {
-      finish(error, body);
+      finish(null, body);
     });
 
   });
 
-  req.on('error', function(e) {
-    error = e;
-  });
-
+  req.on('error', callback);
   req.write('');
   req.end();
 }
@@ -100,9 +98,8 @@ getUtxos(walletId, function(err, utxos) {
   if(err) {
     throw err;
   }
-  var data = JSON.stringify(utxos);
   if (args[0]) {
-    writeOutputFile(args[0], data, function(err) {
+    writeOutputFile(args[0], utxos, function(err) {
       if(err) {
         throw err;
       }
@@ -110,7 +107,10 @@ getUtxos(walletId, function(err, utxos) {
     });
   } else {
     setImmediate(function() {
-      process.stdout.write(JSON.stringify(data));
+      for (var i=0; i<utxos.length; i++) {
+        process.stdout.write(JSON.stringify(utxos[i]));
+        process.stdout.write('\n');
+      }
     });
   }
 });
