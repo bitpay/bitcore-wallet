@@ -17,6 +17,7 @@
     "url": "https://github.com/bitpay/bitcore-wallet/issues"
   },
   "dependencies": {
+    "async": "^2.5.0",
     "bitcore-wallet-client": "5.2.1",
     "commander": "^2.6.0",
     "lodash": "^3.3.1",
