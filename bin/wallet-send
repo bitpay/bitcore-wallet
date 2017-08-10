@@ -14,8 +14,8 @@ program
 program.on('--help', function() {
   console.log('  Examples:');
   console.log('');
-  console.log('    $ bit-send n2HRFgtoihgAhx1qAEXcdBMjoMvAx7AcDc 500bit');
-  console.log('    $ bit-send mgWeRvUC6d1LRPKtdDbvYEpaUEmApS4XrY 0.2btc "dinner with friends"');
+  console.log('    $ wallet-send n2HRFgtoihgAhx1qAEXcdBMjoMvAx7AcDc 500bit');
+  console.log('    $ wallet-send mgWeRvUC6d1LRPKtdDbvYEpaUEmApS4XrY 0.2btc "dinner with friends"');
   console.log('');
 });
 program.parse(process.argv);

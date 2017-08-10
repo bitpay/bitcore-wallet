@@ -241,9 +241,8 @@ Utils.parseAmount = function(text) {
   var rate = Utils.UNITS[unit];
   if (!rate) throw new Error('Invalid unit')
 
-  var amountSat = parseFloat((amount * rate).toPrecision(12));
+  var amountSat = parseFloat((amount * rate.toSatoshis).toPrecision(12));
   if (amountSat != Math.round(amountSat)) throw new Error('Invalid amount');
-
   return amountSat;
 };
 
