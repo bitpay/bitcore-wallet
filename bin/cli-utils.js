@@ -219,12 +219,6 @@ Utils.findOneTxProposal = function(txps, id) {
   return matches[0];
 };
 
-Utils.UNITS = {
-  'btc': 100000000,
-  'bit': 100,
-  'sat': 1,
-};
-
 Utils.parseAmount = function(text) {
   if (!_.isString(text))
     text = text.toString();
@@ -241,7 +235,7 @@ Utils.parseAmount = function(text) {
   var rate = Utils.UNITS[unit];
   if (!rate) throw new Error('Invalid unit')
 
-  var amountSat = parseFloat((amount * rate).toPrecision(12));
+  var amountSat = parseFloat((amount * rate.toSatoshis).toPrecision(12));
   if (amountSat != Math.round(amountSat)) throw new Error('Invalid amount');
 
   return amountSat;
@@ -269,6 +263,12 @@ Utils.UNITS = {
     toSatoshis: 100,
     maxDecimals: 2,
     minDecimals: 2,
+  },
+  sat: {
+    name: 'sat',
+    toSatoshis: 1,
+    maxDecimals: 0,
+    minDecimals: 0,
   },
 };
 
