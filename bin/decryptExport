@@ -7,6 +7,7 @@
 *
 * TODO: take in passphrase from prompt so it doesn't get written to bash history
 *
+* usage: <berkeley> | decryptExport mypasswordgoeshere networkgoeshere(optional)
 */
 
 
