@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+'use strict';
+
+
+/*
+* takes in the output from wallet-import-berkeley and prints out plaintext wif private keys, one per line
+*
+* TODO: take in passphrase from prompt so it doesn't get written to bash history
+*
+*/
+
+
+
+var readline = require('readline');
+
+var bitcore = require('bitcore-lib');
+var Hash = bitcore.crypto.Hash;
+
+var cryptoFunctions  = require('../util/crypto-functions');
+
+var passphrase = process.argv[2];
+var network = process.argv[3] || 'livenet';
+if (network !== 'livenet' && network !== 'testnet') {
+  console.log('invalid network');
+  process.exit();
+}
+
+var salt;
+var rounds;
+var masterKey;
+
+function processFirstLine(line) {
+  var json = JSON.parse(line);
+  salt = json.salt;
+  rounds = json.rounds;
+  masterKey = decryptMasterKey(json.cipherText, passphrase);
+}
+
+function processLine(line) {
+  var json;
+  try {
+    json = JSON.parse(line);
+  } catch(err) {
+    return;
+  }
+  var rawKey = decryptPrivateKey(json);
+  var WIFKey = bitcore.PrivateKey(rawKey, network).toWIF();
+  console.log(WIFKey);
+}
+
+function decryptMasterKey(cipherText, key) {
+  var plainText = cryptoFunctions.decryptSecret({
+    passphrase: key,
+    salt: salt,
+    cipherText: cipherText,
+    derivationOptions: {
+      rounds: rounds,
+      method: 0
+    }
+  });
+  return plainText;
+}
+
+function decryptPrivateKey(options) {
+  var plainText = cryptoFunctions.decrypt({
+    cipherText: options.cipherText,
+    key: masterKey,
+    iv: Hash.sha256sha256(new Buffer(options.pubKey, 'hex'))
+  });
+  return plainText;
+}
+
+var lineStream = readline.createInterface({
+  input: process.stdin
+});
+
+
+var firstLine = true;
+lineStream.on('line', function(line) {
+  if (firstLine) {
+    processFirstLine(line);
+    firstLine = false;
+  } else {
+    processLine(line);
+  }
+});
+
+lineStream.on('close', function() {
+  process.exit();
+});
