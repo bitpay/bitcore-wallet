@@ -13,7 +13,7 @@ program
   .option('-e, --exportpassword <password>', 'a password to decrypt the data being imported')
   .option('-k, --keypassword <password>', 'password to decrypt private key from imported file')
   .option('-p, --password', 'Encrypt wallet. Will ask password interactively')
-  .usage('[options] <backup> <passphrase>')
+  .usage('[options] <"backup-words"> <passphrase>')
   .parse(process.argv);
 
 var args = program.args;
