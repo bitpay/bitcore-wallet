@@ -241,10 +241,14 @@ Utils.parseAmount = function(text) {
 
   var unit = (match[3] || 'sat').toLowerCase();
   var rate = Utils.UNITS2[unit];
-  if (!rate) throw new Error('Invalid unit')
+  if (!rate) {
+    Utils.die('Invalid unit: ' + unit);
+  }
 
   var amountSat = parseFloat((amount * rate).toPrecision(12));
-  if (amountSat != Math.round(amountSat)) throw new Error('Invalid amount');
+  if (amountSat != Math.round(amountSat)) {
+    Utils.die('Invalid amount: ' + amount + ' ' + unit);
+  }
 
   return amountSat;
 };
