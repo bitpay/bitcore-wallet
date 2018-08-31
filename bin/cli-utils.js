@@ -232,7 +232,9 @@ Utils.parseAmount = function(text) {
   var regex = '^(\\d*(\\.\\d{0,8})?)\\s*(' + _.keys(Utils.UNITS2).join('|') + ')?$';
   var match = new RegExp(regex, 'i').exec(text.trim());
 
-  if (!match || match.length === 0) throw new Error('Invalid amount');
+  if (!match || match.length === 0) {
+    Utils.die('Invalid amount: ' + text);
+  }
 
   var amount = parseFloat(match[1]);
   if (!_.isNumber(amount) || _.isNaN(amount)) throw new Error('Invalid amount');
