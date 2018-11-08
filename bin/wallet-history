@@ -33,7 +33,6 @@ utils.getClient(program, {
 }, function(client) {
 
   var l=0;
-
   async.doWhilst(
     function(cb) {
       console.warn('* Getting: %d => %d Got:', skip, skip + page, l);
@@ -74,6 +73,9 @@ utils.getClient(program, {
                 break;
               case 'sent':
                 direction = '=>';
+                break;
+              default:
+                direction = tx.action;
                 break;
             }
             console.log("\t%s: %s %s %s %s(%s confirmations)", time, direction, tx.action, amount, proposal, confirmations);
