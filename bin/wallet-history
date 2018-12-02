@@ -10,13 +10,14 @@ program = utils.configureCommander(program);
 
 program
   .option('-o, --output <file>', 'get JSON output in file')
+  .option('-l, --limit <n>', 'limit history to n transactions')
   .option('-i, --info', 'get extra history info')
   .parse(process.argv);
 
 var args = program.args;
 
-var skip = 0,
-  limit = 55, got;
+var skip = 0, total = 0 ,
+  limit = program.limit, got, page = 10;
 console.warn("* TX History:")
 
 
@@ -27,13 +28,18 @@ utils.getClient(program, { mustExist: true }, function (client) {
    function(cb) {
      client.getTxHistory({
        skip: skip,
-       limit: limit + 1,
+       limit: page+ 1,
        includeExtendedInfo: program.info,
      }, function(err, txs) {
+       if (err) return cb(err);
 
        if (_.isEmpty(txs))
-       return;
-       got = txs.length;
+        return;
+
+       got =  txs.length;
+       if (got > page) {
+         txs.pop();
+       }
 
        if (program.output) {
          allTxs.push(txs);
@@ -64,23 +70,23 @@ utils.getClient(program, { mustExist: true }, function (client) {
                direction = tx.action;
                break;
            }
-
            console.log("\t%s: %s %s %s %s(%s confirmations)", time, direction, tx.action, amount, proposal, confirmations);
          });
        }
+       return cb();
      });
-     cb();
    },
    function() {
-     var cont = got > limit;
+     total = total + got;
+     var cont = got > page && (!limit || total < limit);
      if (cont) {
-       skip+= limit;
+       skip+= page;
        console.warn('* Skip:', skip);
      }
      return cont;
    },
    function (err) {
-     console.log(err);
+     if (err) console.log(err);
    }
  );
 });
