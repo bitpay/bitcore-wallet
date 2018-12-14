@@ -12,13 +12,37 @@ program
   .option('-o, --output <file>', 'get JSON output in file')
   .option('-l, --limit <n>', 'limit history to n transactions')
   .option('-i, --info', 'get extra history info')
+  .option('-t, --format <json>', 'format csv / json')
   .parse(process.argv);
 
 var args = program.args;
 
 var skip = 0, total = 0 ,
-  limit = program.limit, got, page = 10;
+  limit = program.limit, got, page = 1000;
 console.warn("* TX History:")
+
+let converter = JSON.stringify.bind();
+
+if (program.format == 'csv') {
+  converter = function(txs) {
+
+    var ret = '';
+    _.each(txs, (x) => {
+      let amount = x.amount;
+      if (x.action != 'received') 
+        amount *= -1;
+
+      amount = (amount /1e8).toFixed(8);
+        
+      ret = ret +  `${x.txid},${x.time},${amount}` + "\n";
+    });
+
+    return ret;
+  };
+} else if (program.format == 'json') {
+} else if (program.format) { 
+  utils.die('Unknown format ' + program.format);
+}
 
 
 var allTxs=[];
@@ -42,8 +66,8 @@ utils.getClient(program, { mustExist: true }, function (client) {
        }
 
        if (program.output) {
-         allTxs.push(txs);
-         fs.writeFile(program.output,JSON.stringify(txs), {
+         allTxs = allTxs.concat(txs);
+         fs.writeFile(program.output,converter(allTxs), {
            encoding: 'utf8'
          }, function(err) {
            if (err) console.error(err);
