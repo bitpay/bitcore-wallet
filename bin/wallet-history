@@ -23,20 +23,84 @@ console.warn("* TX History:")
 
 let converter = JSON.stringify.bind();
 
+
+function formatDate(date) {
+  var dateObj = new Date(date);
+  if (!dateObj) {
+    this.logger.warn('Error formating a date');
+    return 'DateError';
+  }
+  if (!dateObj.toJSON()) {
+    return '';
+  }
+  return dateObj.toJSON();
+}
+
+
+
 if (program.format == 'csv') {
   converter = function(txs) {
 
     var ret = '';
-    _.each(txs, (x) => {
-      let amount = x.amount;
-      if (x.action != 'received') 
-        amount *= -1;
+    var _amount, _note, _copayers, _creator, _comment;
+    var csvContent = [];
 
-      amount = (amount /1e8).toFixed(8);
-        
-      ret = ret +  `${x.txid},${x.time},${amount}` + "\n";
+    // from Copay
+    txs.forEach(it => {
+      var amount = it.amount;
+      if (it.action == 'moved') amount = 0;
+
+      _copayers = '';
+      _creator = '';
+
+      if (it.actions && it.actions.length > 1) {
+        for (var i = 0; i < it.actions.length; i++) {
+          _copayers +=
+          it.actions[i].copayerName + ':' + it.actions[i].type + ' - ';
+        }
+        _creator =
+        it.creatorName && it.creatorName != 'undefined'
+        ? it.creatorName
+        : '';
+      }
+      _amount = (it.action == 'sent' ? '-' : '') + (amount /1e8).toFixed(8);
+      _note = it.message || '';
+      _comment = it.note ? it.note.body : '';
+
+      if (it.action == 'moved')
+        _note += ' Moved:' + (it.amount /1e8).toFixed(8);
+
+      csvContent.push({
+        Date: formatDate(it.time * 1000),
+        Destination: it.addressTo || '',
+        Description: _note,
+        Amount: _amount,
+        Currency: this.currency,
+        Txid: it.txid,
+        Creator: _creator,
+        Copayers: _copayers,
+        Comment: _comment
+      });
+
+      if (it.fees && (it.action == 'moved' || it.action == 'sent')) {
+        var _fee = (it.fees / 1e8).toFixed(8);
+        csvContent.push({
+          Date: formatDate(it.time * 1000),
+          Destination: 'Bitcoin Network Fees',
+          Description: '',
+          Amount: '-' + _fee,
+          Currency: this.currency,
+          Txid: '',
+          Creator: '',
+          Copayers: ''
+        });
+      }
+
     });
 
+    csvContent.forEach(it => {
+      ret = ret + `${it.Date},${it.Txid},${it.Destination},${it.Amount}` + "\n";
+    });
     return ret;
   };
 } else if (program.format == 'json') {
