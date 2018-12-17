@@ -103,6 +103,8 @@ Utils.getClient = function(args, opts, cb) {
     baseUrl: url.resolve(host, '/bws/api'),
     verbose: args.verbose,
     supportStaffWalletId: opts.walletId,
+    timeout: 20 * 60 * 1000,
+    //timeout: 1000,
   });
 
   storage.load(function(err, walletData) {
