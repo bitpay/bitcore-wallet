@@ -53,6 +53,7 @@ utils.getClient(program, {
       walletId: status.wallet.id,
     }, (client) => {
 
+      displayStatus(status);
       async.parallel([
         function(done) {
           client.getSendMaxInfo({
@@ -70,7 +71,6 @@ utils.getClient(program, {
       ], (err, res) => {
         utils.die(err);
 
-        displayStatus(status);
         if (trim) {
           if ((res[1] && res[1].length>N) ||  (res[2] && res[2].length> N))
             console.log('\n Trimming results to %s items', N );
